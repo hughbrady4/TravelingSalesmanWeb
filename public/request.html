@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Traveling Salesman</title>
+
+    <!-- update the version number as needed -->
+    <script defer src="/__/firebase/11.6.1/firebase-app-compat.js"></script>
+    <!-- include only the Firebase features as you need -->
+    <script defer src="/__/firebase/11.6.1/firebase-auth-compat.js"></script>
+    <script defer src="/__/firebase/11.6.1/firebase-database-compat.js"></script>
+    <script defer src="/__/firebase/11.6.1/firebase-firestore-compat.js"></script>
+    <!-- <script defer src="/__/firebase/11.6.1/firebase-functions-compat.js"></script> -->
+    <!-- <script defer src="/__/firebase/11.6.1/firebase-messaging-compat.js"></script> -->
+    <!-- <script defer src="/__/firebase/11.6.1/firebase-storage-compat.js"></script> -->
+    <script defer src="/__/firebase/11.6.1/firebase-analytics-compat.js"></script>
+    <!-- <script defer src="/__/firebase/11.6.1/firebase-remote-config-compat.js"></script> -->
+    <!-- <script defer src="/__/firebase/11.6.1/firebase-performance-compat.js"></script> -->
+    <!-- 
+      initialize the SDK after all desired features are loaded, set useEmulator to false
+      to avoid connecting the SDK to running emulators.
+    -->
+    <script defer src="/__/firebase/init.js?useEmulator=false"></script>
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  
+
+    <script src="https://www.gstatic.com/firebasejs/ui/6.0.1/firebase-ui-auth.js"></script>
+    <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.0.1/firebase-ui-auth.css" />
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <style>
+
+      /* #firebaseui-auth-container { */
+        /* display: none; */
+        /* z-index: 5; */
+        /* position: fixed; */
+        /* min-width: 500px; */
+        /* margin-left: -250px;  */
+        /* left: 50%; */
+        /* min-height: 500px; */
+        /* margin-top: -250px; */
+        /* top: 50%; */
+      /* }  */
+
+
+      #mapDiv {
+        margin:auto;
+        height: 600px;
+        width: 99%; 
+      }
+      .customBtn {
+        margin: 10px;
+
+      }
+
+
+      #request-card {
+        /* display: flex; */
+        width: 67%;
+        background-color: #fff;
+        border-radius: 5px;
+        box-shadow: rgba(0, 0, 0, 0.35) 0px 5px 15px;
+        margin: 10px;
+        padding: 5px;
+        font-family: Roboto, sans-serif;
+        font-size: large;
+        font-weight: bold;
+      }
+
+      #text-input {
+        width: 100%;
+        padding: 10px;
+        margin: 0;
+        box-sizing: border-box;
+      }
+
+    .text-input-button {
+      display: inline-block;
+      margin-top: .5rem;
+      width: auto;
+      padding: .6rem .75rem;
+      font-size: .875rem;
+      font-weight: 500;
+      color: #fff;
+      background-color: #2563eb;
+      border: none;
+      border-radius: .375rem;
+      cursor: pointer;
+      transition: background-color .15s ease-in-out;
+      text-align: center
+    }
+
+    #pay-button {
+      margin: 5px;
+      justify-content: flex-end;
+      float: right;
+      display: inline;
+    }
+
+    #btn-signin.hide {
+      visibility: hidden;
+
+    }
+
+    #btn-signout.hide {
+      visibility: hidden;
+
+    }
+
+    </style>
+  
+  </head>
+  <body>
+    <script>
+      (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+        key: "AIzaSyBEE3PbSfTipC6WGZ3DMsGtWGU_LJVHYAc",
+        v: "beta",
+        // Use the 'v' parameter to indicate the version to use (weekly, beta, alpha, etc.).
+        // Add other bootstrap parameters as needed, using camel case.
+      });
+    </script>
+
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
+      <div class="container-fluid justify-content-between">
+        <a class="navbar-brand" href="https://en.wikipedia.org/wiki/Epoch_(computing)" id="heading" data-bs-toggle="tooltip"
+        title="What is epoch time?"></a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" 
+          aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse align-content-start" id="navbarSupportedContent">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-signin" onclick="signIn()"  type="button">Sign In</button>
+            </li>
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
+            </li>
+          </ul>
+        </div>
+        
+      </div>
+    </nav>
+
+    <div id="firebaseui-auth-container"></div>
+
+    <div id="request-card">
+      <h2>Request</h2>
+      <p id="request-ts"></p>
+      <button class="btn btn-light" id="pay-button" value="Pay">Pay</button>
+
+    </div>
+
+
+    <div id="routeControl" class="modal" tabindex="-1" role="dialog">
+      <div class="modal-dialog" role="document">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Modify Route</h5>
+            <button type="button" class="close" data-bs-dismiss="modal" aria-label="Close">
+              <span aria-hidden="true">&times;</span>
+            </button>
+          </div>
+          <div class="modal-body">
+            <p id="modal-paragraph">Would you like to add this place to your route?</p>
+            <p id="modal-address"></p>
+
+          </div>
+          <div class="modal-footer">
+            <button id="btn-add-to-route" type="button" class="btn btn-primary" onclick="addToRoute(this)" data-bs-dismiss="modal">Add to Route</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="offcanvas offcanvas-bottom" tabindex="-1" id="bottomSheetOffcanvas" aria-labelledby="bottomSheetOffcanvasLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="bottomSheetOffcanvasLabel">Request Details</h5>
+
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body">
+
+        <ol type="A" id="req-node-list">
+
+        </ol>
+      </div>
+    </div>
+
+    <div id="mapDiv"></div>
+
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+      <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <!-- <div class="toast-header">
+          <img src="..." class="rounded mr-2" alt="..." />
+          <strong class="mr-auto">Authenticate</strong>
+          <small>11 mins ago</small>
+          <button type="button" class="ml-2 mb-1 close" data-dismiss="toast" aria-label="Close"></button>
+        </div> -->
+        <div id="toast-body" class="toast-body">
+        </div>
+      </div>
+    </div>
+
+
+    <script type="module">
+
+      async function init() {
+
+        const position = { lat: 39.97104933291905, lng: -74.25190468397426 };
+
+        const { Map } = await google.maps.importLibrary("maps");
+
+        // The map, centered at Uluru
+        map = new Map(document.getElementById("mapDiv"), {
+          fullscreenControl: false,
+          streetViewControl: true,
+          zoom: 14,
+          minZoom: 3,
+          center: position,
+          disableDefaultUI: false,
+          mapId: "13569eb50ca88bbf",
+          disableDefaultUI: true,
+          streetViewControl: false,
+          zoomControl: true,
+        });
+
+        const card = document.getElementById('request-card');
+        map.controls[google.maps.ControlPosition.TOP_LEFT].push(card);
+
+        const payButton = document.getElementById('pay-button');
+
+        payButton.addEventListener("click", () => {
+          window.open("https://buy.stripe.com/4gM8wP1RD1pab500xS3cc02");
+
+        });
+
+      }
+
+      function getResponses(user) {
+
+        const q = query(collection(firestore, "responses"), where("user", "==", user.uid));
+          const unsubscribe = onSnapshot(q, (querySnapshot) => {
+
+          const responses = [];
+          querySnapshot.forEach((doc) => {
+              responses.push(doc.data().createdTS);
+          });
+          console.log("Current respones: ", responses.join(", "));
+        
+        
+        
+        });
+
+
+
+        // if (data && "route" in data && "path" in data.route) {
+        //   const path = new google.maps.Polyline({
+        //     path: data.route.path,
+        //     geodesic: true,
+        //     strokeColor: "#FF0000",
+        //     strokeOpacity: 2.0,
+        //     strokeWeight: 4,
+        //   });
+        //   path.setMap(map);
+        // } 
+
+      }
+
+
+      async function updateLocation(position) {
+
+        const user = auth.currentUser;
+        if (user != null) {
+
+          const userRef = doc(firestore, "users", user.uid);
+
+          await setDoc(userRef, {
+            latitude: position.coords.latitude,
+            longitude: position.coords.longitude,
+            accuracy: position.coords.accuracy,
+            positionTS: serverTimestamp(),
+          }, { merge: true });
+        }
+      }
+
+      function getUserData(user) {
+
+        const unsub = onSnapshot(doc(firestore, "users", user.uid), (snapshot) => {
+          console.log("Current data: ", snapshot.data());
+          const data = snapshot.data();
+
+
+
+          if ("latitude" in data && "longitude" in data) {
+          }
+
+
+ 
+
+        });
+      }
+
+      //search places api
+      async function findPlaces(query) {
+               
+        const request = {
+            textQuery: query,
+            fields: ['displayName', 'location', 'businessStatus'],
+            includedType: '', // Restrict query to a specific type (leave blank for any).
+            useStrictTypeFiltering: true,
+            locationBias: map.center,
+            isOpenNow: true,
+            language: 'en-US',
+            maxResultCount: 8,
+            minRating: 1, // Specify a minimum rating.
+            region: 'us',
+        };
+
+        const { places } = await Place.searchByText(request);
+        if (places.length) {
+
+         
+            markers = {};
+            // Loop through and get all the results.
+            const place = places[0];
+            // places.forEach(place => {
+                let labelIndex = MARKERS.size;
+                let label = labels[labelIndex % labels.length];
+
+                const pinTextGlyph = new PinElement({
+                  glyph: label,
+                  scale: 1.1,
+                  glyphColor: "white",
+                });
+
+                const marker = new AdvancedMarkerElement({
+                    map,
+                    position: place.location,
+                    title: place.displayName,
+                    content: pinTextGlyph.element,
+
+                });
+                markers[place.id] = marker;
+                MARKERS.set(label, marker);
+                marker.addListener('gmp-click', () => {
+                    map.panTo(place.location);
+                    updateInfoWindow(place.displayName, place.id, marker);
+                });
+                if (place.location != null) {
+                    const bounds = map.getBounds().extend(place.location);
+                    map.fitBounds(bounds);
+
+                }
+            // });
+          const textInput = document.getElementById('text-input');
+          textInput.value = "";
+        }
+        else {
+            console.log('No results');
+        }
+      }
+
+      function addToRoute(button) {
+
+        //get node info from button
+        const latLng = $(button).data("position");
+        const address = $(button).data("address");
+
+
+        //Get a label for the route node
+        let labelIndex = MARKERS.size;
+        let label = labels[labelIndex % labels.length];
+
+        const pinTextGlyph = new PinElement({
+          glyph: label,
+          scale: 1.1,
+          glyphColor: "white",
+        });
+
+        const marker = new AdvancedMarkerElement({
+          map,
+          position: latLng,
+          title: label,
+          content: pinTextGlyph.element,
+
+        });
+        MARKERS.set(label, marker);
+
+        const newNode = document.createElement("li");
+        newNode.textContent = address;
+        $("#req-node-list").append(newNode);
+
+
+
+
+      }
+    
+      async function updateInfoWindow(title, content, anchor) {
+        infoWindow.setContent(content);
+        infoWindow.setHeaderContent(title);
+        infoWindow.open({
+            map,
+            anchor,
+            shouldFocus: false,
+        });
+      }
+
+      async function routeRequest(data) {
+          // Import the Routes library.
+        const { Route } = await google.maps.importLibrary('routes');
+        const iterator = MARKERS.entries();
+        const array = iterator.toArray();
+        const arrSize = array.length - 1;
+
+        const origin = data.pickup;
+        const destination = data.destination;
+
+        console.log(origin);
+
+        // Define a computeRoutes request.
+        const request = {
+          origin: origin,
+          destination: destination,
+          travelMode: 'DRIVING',
+          fields: ['path', 'description', 'distanceMeters', 'durationMillis'], // Request fields needed to draw polylines.
+        };
+
+        // Call the computeRoutes() method to get routes.
+        const {routes} = await Route.computeRoutes(request);
+
+        console.log(routes[0].toJSON());
+
+          // Call createPolylines to create polylines for the first route.
+        const mapPolylines = routes[0].createPolylines();
+        // Add polylines to the map.
+        mapPolylines.forEach((polyline) => polyline.setMap(map));
+    
+
+        
+      }
+      
+      function getRequest(id) {
+
+        const unsub = onSnapshot(doc(firestore, "requests", id), (snapshot) => {
+          console.log("Current data: ", snapshot.data());
+          const data = snapshot.data();
+
+          if ("requestTS" in data) {
+            document.getElementById("request-ts").innerHTML = data.requestTS.toDate();
+          }
+
+          if ("pickup" in data && "destination" in data) {
+            routeRequest(data);
+          }
+
+        });
+
+      }
+
+      function getAllNodes() {
+
+        const nodeCollection = collection(firestore, "users");
+        const q = query(nodeCollection, where("isOnline", "==", true));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+          // const bounds = mMap.getBounds();
+
+          snapshot.docChanges().forEach((change) => {
+            const nodeId = change.doc.id;
+            const doc = change.doc;
+            console.log(change.doc.data());
+
+            if (change.type === "added") {
+
+              if (doc.data().latitude && doc.data().longitude) {
+                let position = { lat: doc.data().latitude, lng: doc.data().longitude };
+
+
+                let marker = new AdvancedMarkerElement({
+                  map: map,
+                  gmpClickable: true,
+
+                  gmpDraggable: false,
+                  position: position,
+                  title: nodeId,
+                  // content: pinTextGlyph.element,
+                });
+
+                MARKERS.set(nodeId, marker);
+            
+              }
+
+            }
+            if (change.type === "modified") {
+
+              if (doc.data().latitude && doc.data().longitude) {
+                let position = { lat: doc.data().latitude, lng: doc.data().longitude };
+                let marker = MARKERS.get(nodeId);
+                marker.position = position;
+              }
+
+            }
+            if (change.type === "removed") {
+
+              let marker = MARKERS.get(nodeId);
+              marker.setMap(null); 
+              MARKERS.delete(nodeId);
+
+              
+            }
+          });
+        });
+      }
+
+      function getQueryParameters(url) {
+          // Create a temporary anchor element to parse the URL
+          var anchor = document.createElement('a');
+          anchor.href = url;
+
+          // Split the query string by '&' and then by '=' to get key-value pairs
+          var params = {};
+          anchor.search.slice(1).split('&').forEach(function(part) {
+              var item = part.split('=');
+              // Decode URI components to handle special characters
+              params[decodeURIComponent(item[0])] = decodeURIComponent(item[1] || '');
+          });
+
+          return params;
+      }
+
+      async function getUserLocation() {
+
+        if (navigator.geolocation) {
+          
+          await navigator.geolocation.getCurrentPosition((position) => {
+
+            console.log(position);
+
+            const lat = position.coords.latitude;
+            const lng = position.coords.longitude;
+
+            if (lat && lng) {
+
+              const geocoder = new google.maps.Geocoder();
+
+              const pos = new google.maps.LatLng(lat, lng);
+
+              geocoder.geocode({ location: pos }).then((response) => {
+                if (response.results[0]) {
+                  // map.setZoom(11);
+                  const address = response.results[0].formatted_address;
+                  $("#btn-add-to-route").data("address", address);
+                  $("#modal-address").html(address);
+
+                  // infowindow.setContent(address);
+                  // infowindow.open(mMap, marker);
+                  // INFO_MARKERS.set(label, infowindow);
+                } else {
+                  window.alert("No street address results found");
+                }
+              }).catch((e) => window.alert("Geocoder failed due to: " + e));
+
+              //add postion to confirmation dialog and display
+              $("#btn-add-to-route").data("position", pos);
+              $('#routeControl').modal('show');
+
+              //center the map
+              map.panTo({ lat: lat, lng: lng});
+
+              //update firestore user data
+              updateLocation(position);              
+            } 
+
+          }, (error) => {
+            window.alert("Failed to get location due to: " + error.message)
+            console.log(error.message);
+          });
+
+        } //end geo location
+      }
+
+      async function getSettings() {
+
+
+
+      }
+
+      function signIn() {
+
+        const ui = new firebaseui.auth.AuthUI(firebase.auth());
+
+        const uiConfig = {
+          callbacks: {
+            signInSuccessWithAuthResult: (authResult, redirectUrl) => {
+              // Return type determines whether we continue the redirect automatically
+              document.getElementById('mapDiv').classList.remove("hide");
+              return false;
+            },
+            uiShown: function() {
+              document.getElementById('mapDiv').classList.add("hide");
+            }
+          }, signInFlow: 'popup',
+          signInOptions: [
+            // firebase.auth.EmailAuthProvider.PROVIDER_ID,
+            // firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+            {
+              provider: firebase.auth.PhoneAuthProvider.PROVIDER_ID,
+              recaptchaParameters: {
+              type: 'image', // 'audio'
+              size: 'invisible', // 'invisible' or 'compact'
+              badge: 'bottomright' //' bottomright' or 'inline' applies to invisible.
+              },
+            }
+          ],
+          privacyPolicyUrl: 'https://organicsystemsllc.com/privacy.html',
+
+
+          tosUrl: 'https://organicsystemsllc.com/privacy.html',
+        };
+
+        ui.start('#firebaseui-auth-container', uiConfig);
+        
+      }
+
+      function signOut() {
+        auth.signOut();
+
+
+      }
+
+      function toastMessage(message) {
+        document.getElementById('toast-body').innerHTML = message;
+        const toast = bootstrap.Toast.getOrCreateInstance(document.getElementById('toast'));
+        toast.show();
+
+      }
+
+      window.addToRoute = addToRoute;
+      window.getUserLocation = getUserLocation;
+      window.signIn = signIn;
+      window.signOut = signOut;
+
+      const MARKERS = new Map();
+
+      const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
+      const { event } = await google.maps.importLibrary("core");
+
+      // Import the functions you need from the SDKs you need
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+      import { doc, setDoc, getDoc, addDoc, updateDoc, deleteDoc, deleteField, getFirestore, onSnapshot, collection, query, where, serverTimestamp } 
+      from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+      import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1//firebase-auth.js"
+    
+
+      const firebaseConfig = {
+        apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
+        authDomain: "osweb-140a8.firebaseapp.com",
+        projectId: "osweb-140a8",
+        storageBucket: "osweb-140a8.firebasestorage.app",
+        messagingSenderId: "939475367267",
+        appId: "1:939475367267:web:ae83ef6f5b26ea525f4f56",
+        measurementId: "G-GWDJ4TQSSY"
+      };
+
+      // Initialize Firebase
+      const app = initializeApp(firebaseConfig);
+      const analytics = getAnalytics(app);
+      const firestore = getFirestore(app);
+      let map;
+      let markers;
+      let infoWindow;
+
+      const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+      const { Place } = await google.maps.importLibrary("places");
+
+      const { LatLngBounds } = await google.maps.importLibrary("core");
+
+      document.title = "OS Web";
+      heading.innerHTML = "Traveling Salesman";
+
+      const auth = getAuth();
+      onAuthStateChanged(auth, (user) => {
+        if (user) {
+          const uid = user.uid;
+          getUserData(user);
+
+
+          document.getElementById("btn-signin").classList.add("disabled");
+          document.getElementById("btn-signout").classList.remove("disabled");
+
+          console.log("User signed in.");
+
+        } else {
+
+          document.getElementById("btn-signout").classList.add("disabled");
+          document.getElementById("btn-signin").classList.remove("disabled");
+
+          console.log("User not signed in.")
+        }
+      });
+
+
+
+      await init();
+
+      
+      const params = getQueryParameters(window.location.href);
+      if ('id' in params) {
+        console.log(params);
+        getRequest(params.id);
+
+      } else {
+        toastMessage("Missing id in query.");
+      }
+
+    </script>
+
+
+  </body>
+</html>

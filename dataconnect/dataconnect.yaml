@@ -1,0 +1,12 @@
+specVersion: "v1"
+serviceId: "TravelingSalesman"
+location: "northamerica-northeast1"
+schema:
+  source: "./schema"
+  datasource:
+    postgresql:
+      database: "fdcdb"
+      cloudSql:
+        instanceId: "travelingsalesman-fdc"
+      # schemaValidation: "COMPATIBLE"
+connectorDirs: ["./connector"]
