@@ -6,6 +6,7 @@
     <title>Traveling Salesman</title>
 
     <!-- update the version number as needed -->
+     
     <script defer src="/__/firebase/11.6.1/firebase-app-compat.js"></script>
     <!-- include only the Firebase features as you need -->
     <script defer src="/__/firebase/11.6.1/firebase-auth-compat.js"></script>
@@ -34,17 +35,17 @@
 
     <style>
 
-      /* #firebaseui-auth-container { */
+      #firebaseui-auth-container {
         /* display: none; */
         /* z-index: 5; */
         /* position: fixed; */
         /* min-width: 500px; */
-        /* margin-left: -250px;  */
+        /* margin: 10px;  */
         /* left: 50%; */
         /* min-height: 500px; */
         /* margin-top: -250px; */
         /* top: 50%; */
-      /* }  */
+      } 
 
 
       #mapDiv {
@@ -107,6 +108,11 @@
 
     }
 
+    #mapDiv.hide {
+      visibility: hidden;
+
+    }
+
     </style>
   
   </head>
@@ -146,10 +152,11 @@
 
     <div id="firebaseui-auth-container"></div>
 
+    <button class="btn btn-primary" id="btn-location" onclick="getUserLocation()">Location</button>
+    <button class="btn btn-primary" id="btn-request" value="Request" data-bs-toggle="offcanvas" data-bs-target="#bottomSheetOffcanvas" aria-controls="bottomSheetOffcanvas">Request</button>
+
+
     <div id="text-input-card">
-      <!-- <input type="text" id="text-input" placeholder="Enter destination"></input> -->
-      <button class="btn btn-light" id="btn-location" onclick="getUserLocation()">Location</button>
-      <button class="btn btn-light" id="request-button" value="Request" data-bs-toggle="offcanvas" data-bs-target="#bottomSheetOffcanvas" aria-controls="bottomSheetOffcanvas">Request</button>
     
     </div>
 
@@ -181,7 +188,6 @@
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
       </div>
       <div class="offcanvas-body">
-        <button class="btn btn-light" id="pay-button" value="Pay">Pay</button>
 
         <ol type="A" id="req-node-list">
 
@@ -254,30 +260,22 @@
 
         const textInputCard = document.getElementById('text-input-card');
         textInputCard.appendChild(placeAutocomplete);
-        const requestButton = document.getElementById('request-button');
-        // const calcButton = document.getElementById('calc-button');
-        const payButton = document.getElementById('pay-button');
-
-        const card = document.getElementById('text-input-card');
-        map.controls[google.maps.ControlPosition.TOP_LEFT].push(card);
 
 
-        // textInput.addEventListener('keydown', (event) => {
-        //     if (event.key === 'Enter') {
-        //         findPlaces(textInput.value);
-        //     }
-        // });
+        map.controls[google.maps.ControlPosition.TOP_LEFT].push(textInputCard);
+        const btnLocation = document.getElementById('btn-location');
+        const btnRequest = document.getElementById('btn-request');
+        map.controls[google.maps.ControlPosition.RIGHT_TOP].push(btnLocation);
+        map.controls[google.maps.ControlPosition.RIGHT_TOP].push(btnRequest);
+
         infoWindow = new google.maps.InfoWindow();
 
-        // calcButton.addEventListener("click", () => {
-        //   routeRequest();
-        // })
-
-        requestButton.addEventListener("click", () => {
+        btnRequest.addEventListener("click", () => {
 
           const user = auth.currentUser;
           if (user == null) {
             toastMessage("Please sign in to make a request.");
+            pendingClick = true;
             signIn();
           } else {
             addRequest(user);
@@ -286,10 +284,6 @@
 
         });
 
-        payButton.addEventListener("click", () => {
-          window.open("https://buy.stripe.com/4gM8wP1RD1pab500xS3cc02");
-
-        });
 
       }
 
@@ -343,16 +337,33 @@
         const origin = array[0][1].position;
         const destination = array[lastIndex][1].position;
 
-        // Add a new document with a generated id.
-        const requestRef = await addDoc(collection(firestore, "requests"), {
+        const orderedList = document.getElementById('req-node-list'); 
+        const listItems = orderedList.children; 
+
+        const requestRec = {
           user: user.uid,
           requestTS: serverTimestamp(),
           pickup: origin.toJSON(),
           destination: destination.toJSON(),
           status: "new",
           route: routes[0].toJSON(),
+          numNodes: listItems.length,
 
-        });
+        };
+        
+
+        for (let i = 0; i < listItems.length; i++) {
+            let label = labels[i % labels.length];
+            
+            const listItem = listItems[i];
+            const itemText = listItem.textContent; // Get the text content of the list item
+            requestRec[label] = itemText;
+        }        
+
+        // Add a new document with a generated id.
+        const requestRef = await addDoc(collection(firestore, "requests"), requestRec);
+
+
         console.log("Request written with ID: ", requestRef.id);
 
         // Add a new document with a generated id.
@@ -361,6 +372,13 @@
           requestReference: requestRef.id,
           requestTS: serverTimestamp(),
         }, {merge: true});
+
+        const baseUrl = "https://travelingsalesman.web.app/request.html";
+        const requestId = doc.id;
+
+        const requestUrl = new URL(baseUrl);
+        requestUrl.searchParams.append("id", requestRef.id);
+        window.open(requestUrl.href, '_blank');
 
 
       }
@@ -540,12 +558,12 @@
 
           const requests = [];
           querySnapshot.forEach((doc) => {
-              const baseUrl = "https://travelingsalesman.web.app/request.html";
-              const requestId = doc.id;
+              // const baseUrl = "https://travelingsalesman.web.app/request.html";
+              // const requestId = doc.id;
 
-              const requestUrl = new URL(baseUrl);
-              requestUrl.searchParams.append("id", requestId);
-              window.open(requestUrl.href, '_blank');
+              // const requestUrl = new URL(baseUrl);
+              // requestUrl.searchParams.append("id", requestId);
+              // window.open(requestUrl.href, '_blank');
           });
               
         });
@@ -624,6 +642,7 @@
 
       async function getUserLocation() {
 
+        
         if (navigator.geolocation) {
           
           await navigator.geolocation.getCurrentPosition((position) => {
@@ -686,6 +705,7 @@
         const uiConfig = {
           callbacks: {
             signInSuccessWithAuthResult: (authResult, redirectUrl) => {
+              
               // Return type determines whether we continue the redirect automatically
               document.getElementById('mapDiv').classList.remove("hide");
               return false;
@@ -707,8 +727,6 @@
             }
           ],
           privacyPolicyUrl: 'https://organicsystemsllc.com/privacy.html',
-
-
           tosUrl: 'https://organicsystemsllc.com/privacy.html',
         };
 
@@ -741,7 +759,7 @@
 
       // Import the functions you need from the SDKs you need
       import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+      import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
       import { doc, setDoc, getDoc, addDoc, updateDoc, deleteDoc, deleteField, getFirestore, onSnapshot, collection, query, where, serverTimestamp } 
       from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
       import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1//firebase-auth.js"
@@ -764,6 +782,8 @@
       let map;
       let markers;
       let infoWindow;
+      let pendingClick;
+    
 
       const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
       const { Place } = await google.maps.importLibrary("places");
@@ -776,13 +796,14 @@
       const auth = getAuth();
       onAuthStateChanged(auth, (user) => {
         if (user) {
+          pendingClick = false;
           const uid = user.uid;
           getUserData(user);
           getRequests(user);
           getResponses(user);
 
-          document.getElementById("request-button").setAttribute('data-bs-toggle', 'offcanvas');
-          document.getElementById("request-button").setAttribute('data-bs-target', '#bottomSheetOffcanvas');
+          document.getElementById("btn-request").setAttribute('data-bs-toggle', 'offcanvas');
+          document.getElementById("btn-request").setAttribute('data-bs-target', '#bottomSheetOffcanvas');
 
           document.getElementById("btn-signin").classList.add("disabled");
           document.getElementById("btn-signout").classList.remove("disabled");
@@ -791,8 +812,8 @@
 
         } else {
 
-          document.getElementById("request-button").removeAttribute('data-bs-toggle');
-          document.getElementById("request-button").removeAttribute('data-bs-target');
+          document.getElementById("btn-request").removeAttribute('data-bs-toggle');
+          document.getElementById("btn-request").removeAttribute('data-bs-target');
           document.getElementById("btn-signout").classList.add("disabled");
           document.getElementById("btn-signin").classList.remove("disabled");
 

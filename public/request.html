@@ -59,7 +59,6 @@
 
 
       #request-card {
-        /* display: flex; */
         width: 67%;
         background-color: #fff;
         border-radius: 5px;
@@ -68,7 +67,13 @@
         padding: 5px;
         font-family: Roboto, sans-serif;
         font-size: large;
+
+      }
+
+      #request-card-header {
         font-weight: bold;
+        display: inline;
+
       }
 
       #text-input {
@@ -94,9 +99,13 @@
       text-align: center
     }
 
+    #card-heading {
+      display: inline;
+    }
+
     #pay-button {
       margin: 5px;
-      justify-content: flex-end;
+      /* justify-content: flex-end; */
       float: right;
       display: inline;
     }
@@ -142,6 +151,10 @@
             <li class="nav-item">
               <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
             </li>
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-cancel-request" onclick="cancelRequest()"  type="button">Cancel Request</button>
+
+            </li>
           </ul>
         </div>
         
@@ -151,9 +164,13 @@
     <div id="firebaseui-auth-container"></div>
 
     <div id="request-card">
-      <h2>Request</h2>
-      <p id="request-ts"></p>
-      <button class="btn btn-light" id="pay-button" value="Pay">Pay</button>
+      <div id="request-card-header">
+        <h2 id="card-heading">Request</h2>
+        <button class="btn btn-light" id="pay-button" value="Pay">Pay</button>
+      </div>
+      <div id="request-ts"></div>
+      <div id="request-distance"></div>
+      <div id="request-time"></div>
 
     </div>
 
@@ -430,19 +447,31 @@
           origin: origin,
           destination: destination,
           travelMode: 'DRIVING',
-          fields: ['path', 'description', 'distanceMeters', 'durationMillis'], // Request fields needed to draw polylines.
+          fields: ['path', 'description', 'distanceMeters', 'durationMillis', 'viewport'], // Request fields needed to draw polylines.
         };
 
         // Call the computeRoutes() method to get routes.
         const {routes} = await Route.computeRoutes(request);
 
-        console.log(routes[0].toJSON());
 
           // Call createPolylines to create polylines for the first route.
         const mapPolylines = routes[0].createPolylines();
+        const markers = routes[0].createWaypointAdvancedMarkers({map: map});
         // Add polylines to the map.
         mapPolylines.forEach((polyline) => polyline.setMap(map));
+        map.fitBounds(routes[0].viewport);
     
+        const distance = (routes[0].distanceMeters / 1000) * 0.621371;
+        const duration = (routes[0].durationMillis / 1000) / 60;
+
+        document.getElementById("request-distance").innerHTML = distance.toFixed(1) + " miles";
+        document.getElementById("request-time").innerHTML = duration.toFixed(1) + " minutes";
+
+
+        console.log(distance + ", " + duration);
+
+
+
 
         
       }
@@ -453,13 +482,21 @@
           console.log("Current data: ", snapshot.data());
           const data = snapshot.data();
 
+          if (data == null) {
+            toastMessage("Request data not found.");
+            return;
+          }
+
           if ("requestTS" in data) {
-            document.getElementById("request-ts").innerHTML = data.requestTS.toDate();
+            document.getElementById("request-ts").innerHTML = 
+              data.requestTS.toDate().toLocaleString();
           }
 
           if ("pickup" in data && "destination" in data) {
             routeRequest(data);
           }
+
+
 
         });
 
@@ -642,10 +679,25 @@
 
       }
 
+
+     async function cancelRequest() {
+          
+        const requestRef = doc(firestore, "requests", mRequestId);
+
+        await setDoc(requestRef, {
+          status: "Canceled",
+          statusDescription: "User canceled request.",
+          updatedTS: serverTimestamp(),
+        }, { merge: true });
+
+      }
+
       window.addToRoute = addToRoute;
       window.getUserLocation = getUserLocation;
       window.signIn = signIn;
       window.signOut = signOut;
+      window.cancelRequest = cancelRequest;
+
 
       const MARKERS = new Map();
 
@@ -677,6 +729,7 @@
       let map;
       let markers;
       let infoWindow;
+      let mRequestId;
 
       const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
       const { Place } = await google.maps.importLibrary("places");
@@ -715,6 +768,7 @@
       const params = getQueryParameters(window.location.href);
       if ('id' in params) {
         console.log(params);
+        mRequestId = params.id;
         getRequest(params.id);
 
       } else {

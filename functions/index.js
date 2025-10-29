@@ -8,13 +8,16 @@
  */
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {getAuth} from "firebase-admin/auth";
-import {log} from "firebase-functions/logger";
+import {log, warn} from "firebase-functions/logger";
 
 import {initializeApp} from "firebase-admin/app";
 
 import {getMessaging} from "firebase-admin/messaging";
+import {getFirestore} from "firebase-admin/firestore";
 
 initializeApp();
+
+const db = getFirestore();
 
 const messaging = getMessaging();
 
@@ -30,14 +33,21 @@ export const createRequest =
     }
     const data = snapshot.data();
 
-    log("Request data: " + data.user);
+    log("Request user: " + data.user);
+
+    const driverCollection = db.collection("drivers");
+    const driverDocRefs = await driverCollection.listDocuments();
+    if (driverDocRefs.length === 0) {
+      log("There are no drivers to send notifications to.");
+      return;
+    }
+    const tokens = await db.getAll(...driverDocRefs);
 
 
     const auth = getAuth();
     const userProfile = await auth.getUser(data.user);
 
-    log("Request user: " + userProfile.toJSON());
-
+    event.data.ref.set({phoneNumber: userProfile.phoneNumber ?? "unknown"}, {merge: true});
 
     const notification = {
       title: "You have a new request.",
@@ -47,12 +57,22 @@ export const createRequest =
     };
 
     // Send notifications to all tokens.
-    const messages = {
-      token: "eV4Oa0PsRwOtpPFy3wU4TL:APA91bG3EsU5p0A-RsKbe7PzzzuAdwafaJ8TtDXvAGFyM5dgRY2v89Ry-MiCGyyII9yPRBZVoU3mWCrb18cQky6l-dgTzPdRVppZqUURbKXYItZhn5XoaR8",
-      notification: notification,
-    };
+    const messages = [];
 
-    await messaging.send(messages);
+    tokens.forEach((doc) => {
+      messages.push({
+        token: doc.data().fcmToken,
+        notification: notification,
+      });
+    });
 
-    log("Request FCM sent!");
+    const batchResponse = await messaging.sendEach(messages);
+
+    if (batchResponse.failureCount < 1) {
+      // Messages sent sucessfully. We're done!
+      log("Messages sent.");
+      return;
+    }
+    warn(`${batchResponse.failureCount} messages weren't sent.`,
+        batchResponse);
   });
