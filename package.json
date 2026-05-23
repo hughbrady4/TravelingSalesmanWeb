@@ -1,0 +1,29 @@
+{
+  "name": "travelingsalesmanweb",
+  "version": "1.0.0",
+  "description": "Traveling Salesman Web App",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \\\"Error: no test specified\\\" && exit 1",
+    "build": "webpack --mode=development"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hughbrady4/TravelingSalesmanWeb.git"
+  },
+  "author": "Hugh Brady",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/hughbrady4/TravelingSalesmanWeb/issues"
+  },
+  "homepage": "https://github.com/hughbrady4/TravelingSalesmanWeb#readme",
+  "dependencies": {
+    "@stripe/stripe-js": "^8.6.0",
+    "bootstrap": "^5.3.8",
+    "firebase": "^12.13.0"
+  },
+  "devDependencies": {
+    "webpack": "^5.103.0",
+    "webpack-cli": "^6.0.1"
+  }
+}

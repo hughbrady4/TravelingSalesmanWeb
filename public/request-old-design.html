@@ -2,9 +2,8 @@
 <html lang="en">
   <head>
     <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Traveling Salesman</title>
-
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Holiday City Rides</title>
 
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
@@ -13,11 +12,9 @@
 
     <script src="https://use.fontawesome.com/releases/v6.2.0/js/all.js"></script>
 
-    <script defer src="index.bundle.js"></script>
-
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VJEDFJ82QG">
-    </script>
+ 
+        <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VJEDFJ82QG"></script>
     <script>
       window.dataLayer = window.dataLayer || [];
       function gtag(){dataLayer.push(arguments);}
@@ -26,30 +23,21 @@
       gtag('config', 'G-VJEDFJ82QG');
     </script>
 
+    <script defer src="request.bundle.js"></script>
+
     <style>
-      .list-group-alpha {
-        list-style: none; /* Remove default list styling */
-        counter-reset: alpha-counter; /* Initialize a counter */
-      }
 
-      .list-group-alpha .list-group-item::before {
-        counter-increment: alpha-counter; /* Increment the counter for each item */
-        content: counter(alpha-counter, upper-alpha) ". "; /* Display the letter and a period */
-        margin-right: 0.5rem; /* Add some spacing */
-        font-weight: bold; /* Optional: make the letter bold */
-      }
-
-      #mapDiv {
-        margin:auto;
-        height: 500px;
-      }
-
-                  :root {
+            :root {
         --car-color: #FF9800;
         }
 
+      #mapDiv {
+        margin:auto;
+        height: 600px;
+        width: 99%; 
+      }
 
-                  .driver {
+            .driver {
         align-items: center;
         background-color: #FFFFFF;
         border-radius: 50%;
@@ -141,8 +129,11 @@
         border-top: 9px solid var(--car-color);
       }
 
+
+
     </style>
-    
+
+
   </head>
   <body>
     <script>
@@ -154,9 +145,9 @@
       });
     </script>
 
-    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-1">
+    <nav class="navbar navbar-expand-lg navbar-light bg-light">
       <div class="container-fluid justify-content-between">
-        <a class="navbar-brand" href="/" id="heading">Traveling Salesman</a>
+        <a class="navbar-brand" id="heading">Holiday City Rides</a>
 
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" 
           aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
@@ -172,7 +163,8 @@
               <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
             </li>
             <li class="nav-item">
-              <button class="btn btn-light" id="btn-history" onclick="requestHistory()"  type="button">History</button>
+              <button class="btn btn-light" id="btn-cancel-request" onclick="cancelRequest()"  type="button">Cancel Request</button>
+
             </li>
           </ul>
         </div>
@@ -180,80 +172,43 @@
       </div>
     </nav>
 
-    <div id="main-container" class="container-fluid">
+    <div id="firebaseui-auth-container"></div>
 
-      <!-- <div id="driver-alert-none" class="alert alert-warning alert-dismissible fade show" role="alert">
-        Sorry, no drivers are currently online.
-        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
-        </button>
-      </div> -->
-
-
-      <!-- <div id="driver-alert-online" class="alert alert-success alert-dismissible fade show" role="alert">
-        Good news, drivers online. Click <a data-bs-toggle="offcanvas" href="#offcanvasBottom" role="button" aria-controls="offcanvasBottom" class="alert-link">here</a> for current location.
-        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
-        </button>
-      </div> -->
-
-
-
-      <!-- <div class="mb-3">0 -->
-        <!-- <label for="input-telephone" class="form-label">Phone number</label> -->
-        <!-- <input type="tel" class="form-control" maxlength="12" placeholder="e.g., 123-456-7890" id="input-telephone"> -->
-        <!-- <div id="emailHelp" class="form-text">We'll never share your email with anyone else.</div> -->
-      <!-- </div> -->
-      <!-- <div class="mb-3">
-        <label for="exampleInputPassword1" class="form-label">Password</label>
-        <input type="password" class="form-control" id="exampleInputPassword1">
-      </div> -->
-      <!-- <button class="btn btn-primary mb-3">Log in</button> -->
-
-
-      <h4>Enter pickup and destination:</h4>
-
-      <div id="text-input-card" class="mb-2"></div>
-
-      <button class="btn btn-primary customBtn mb-3" id="btn-location" onclick="getUserLocation()">My Location</button>
-      <button class="btn btn-primary customBtn mb-3" id="btn-clear" onclick="clearRouteNodes()">Clear</button>
-      <button class="btn btn-primary customBtn mb-3" id="btn-request" onclick="requestRide()">Price</button>
-    
-
-      <h5>Ride request detail:</h5>
-      <ol class="list-group list-group-alpha" type="A" id="req-node-list"></ol>
-
-
-    </div>
-
-    <div id="routeControl" class="modal" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Modify Route</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p id="modal-paragraph">Would you like to add this place to your route?</p>
-            <p id="modal-address"></p>
-
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            <button id="btn-add-to-route" type="button" class="btn btn-primary" onclick="addToRoute(this)" data-bs-dismiss="modal">Add</button>
-          </div>
-        </div>
+    <div id="request-card" class="card w-50 text-center m-2">
+      <div id="request-card-header" class="card-header">
+        <h5>Request</h5>
       </div>
+      <div class="card-body">
+        <!-- <div id="request-ts"></div> -->
+        <p class="card-text" id="request-distance"></p>
+        <p class="card-text" id="request-time"></p>
+        <p class="card-text" id="pickup-distance"></p>
+        <p class="card-text" id="pickup-time"></p>
+        <button class="btn btn-primary" id="pay-button" value="Pay">Pay</button>
+
+
+      </div>
+
+
     </div>
 
 
-    <div class="offcanvas offcanvas-bottom h-auto" tabindex="-1" id="offcanvasBottom" aria-labelledby="offcanvasBottomLabel">
+    <div class="offcanvas offcanvas-bottom" tabindex="-1" id="bottomSheetOffcanvas" aria-labelledby="bottomSheetOffcanvasLabel">
       <div class="offcanvas-header">
-        <h5 class="offcanvas-title" id="offcanvasBottomLabel">Map</h5>
+        <h5 class="offcanvas-title" id="bottomSheetOffcanvasLabel">Request Details</h5>
+
         <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
       </div>
       <div class="offcanvas-body">
-      <div id="mapDiv"></div>
+
+        <ol type="A" id="req-node-list">
+
+        </ol>
       </div>
     </div>
+
+    <div id="mapDiv"></div>
+
 
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
       <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
@@ -267,8 +222,5 @@
         </div>
       </div>
     </div>
-
-
-
   </body>
 </html>

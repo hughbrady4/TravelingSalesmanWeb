@@ -13,18 +13,7 @@
 
     <script src="https://use.fontawesome.com/releases/v6.2.0/js/all.js"></script>
 
-    <script defer src="index.bundle.js"></script>
-
-    <!-- Google tag (gtag.js) -->
-    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VJEDFJ82QG">
-    </script>
-    <script>
-      window.dataLayer = window.dataLayer || [];
-      function gtag(){dataLayer.push(arguments);}
-      gtag('js', new Date());
-
-      gtag('config', 'G-VJEDFJ82QG');
-    </script>
+    <script defer src="history.bundle.js"></script>
 
     <style>
       .list-group-alpha {
@@ -171,9 +160,6 @@
             <li class="nav-item">
               <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
             </li>
-            <li class="nav-item">
-              <button class="btn btn-light" id="btn-history" onclick="requestHistory()"  type="button">History</button>
-            </li>
           </ul>
         </div>
         
@@ -182,66 +168,9 @@
 
     <div id="main-container" class="container-fluid">
 
-      <!-- <div id="driver-alert-none" class="alert alert-warning alert-dismissible fade show" role="alert">
-        Sorry, no drivers are currently online.
-        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
-        </button>
-      </div> -->
-
-
-      <!-- <div id="driver-alert-online" class="alert alert-success alert-dismissible fade show" role="alert">
-        Good news, drivers online. Click <a data-bs-toggle="offcanvas" href="#offcanvasBottom" role="button" aria-controls="offcanvasBottom" class="alert-link">here</a> for current location.
-        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
-        </button>
-      </div> -->
-
-
-
-      <!-- <div class="mb-3">0 -->
-        <!-- <label for="input-telephone" class="form-label">Phone number</label> -->
-        <!-- <input type="tel" class="form-control" maxlength="12" placeholder="e.g., 123-456-7890" id="input-telephone"> -->
-        <!-- <div id="emailHelp" class="form-text">We'll never share your email with anyone else.</div> -->
-      <!-- </div> -->
-      <!-- <div class="mb-3">
-        <label for="exampleInputPassword1" class="form-label">Password</label>
-        <input type="password" class="form-control" id="exampleInputPassword1">
-      </div> -->
-      <!-- <button class="btn btn-primary mb-3">Log in</button> -->
-
-
-      <h4>Enter pickup and destination:</h4>
-
-      <div id="text-input-card" class="mb-2"></div>
-
-      <button class="btn btn-primary customBtn mb-3" id="btn-location" onclick="getUserLocation()">My Location</button>
-      <button class="btn btn-primary customBtn mb-3" id="btn-clear" onclick="clearRouteNodes()">Clear</button>
-      <button class="btn btn-primary customBtn mb-3" id="btn-request" onclick="requestRide()">Price</button>
-    
-
-      <h5>Ride request detail:</h5>
+      <h5>Ride request history:</h5>
       <ol class="list-group list-group-alpha" type="A" id="req-node-list"></ol>
 
-
-    </div>
-
-    <div id="routeControl" class="modal" tabindex="-1">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <div class="modal-header">
-            <h5 class="modal-title">Modify Route</h5>
-            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-          </div>
-          <div class="modal-body">
-            <p id="modal-paragraph">Would you like to add this place to your route?</p>
-            <p id="modal-address"></p>
-
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
-            <button id="btn-add-to-route" type="button" class="btn btn-primary" onclick="addToRoute(this)" data-bs-dismiss="modal">Add</button>
-          </div>
-        </div>
-      </div>
     </div>
 
 
@@ -268,6 +197,31 @@
       </div>
     </div>
 
+    <div class="toast-container position-static">
+    <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header">
+        <img src="..." class="rounded me-2" alt="...">
+        <strong class="me-auto">Bootstrap</strong>
+        <small class="text-body-secondary">just now</small>
+        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body">
+        See? Just like this.
+      </div>
+    </div>
+
+    <div class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+      <div class="toast-header">
+        <img src="..." class="rounded me-2" alt="...">
+        <strong class="me-auto">Bootstrap</strong>
+        <small class="text-body-secondary">2 seconds ago</small>
+        <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+      </div>
+      <div class="toast-body">
+        Heads up, toasts will stack automatically
+      </div>
+    </div>
+  </div>
 
 
   </body>

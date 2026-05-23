@@ -6,17 +6,11 @@
     <title>Traveling Salesman</title>
 
     <!-- update the version number as needed -->
-    <script defer src="/__/firebase/11.6.1/firebase-app-compat.js"></script>
     <!-- include only the Firebase features as you need -->
-    <script defer src="/__/firebase/11.6.1/firebase-auth-compat.js"></script>
-    <script defer src="/__/firebase/11.6.1/firebase-database-compat.js"></script>
-    <script defer src="/__/firebase/11.6.1/firebase-firestore-compat.js"></script>
-    <!-- <script defer src="/__/firebase/11.6.1/firebase-functions-compat.js"></script> -->
-    <!-- <script defer src="/__/firebase/11.6.1/firebase-messaging-compat.js"></script> -->
-    <!-- <script defer src="/__/firebase/11.6.1/firebase-storage-compat.js"></script> -->
-    <script defer src="/__/firebase/11.6.1/firebase-analytics-compat.js"></script>
-    <!-- <script defer src="/__/firebase/11.6.1/firebase-remote-config-compat.js"></script> -->
-    <!-- <script defer src="/__/firebase/11.6.1/firebase-performance-compat.js"></script> -->
+    <script defer src="/__/firebase/12.5.0/firebase-app-compat.js"></script>
+    <script defer src="/__/firebase/12.5.0/firebase-auth-compat.js"></script>
+    <script defer src="/__/firebase/12.5.0/firebase-firestore-compat.js"></script>
+    <script defer src="/__/firebase/12.5.0/firebase-analytics-compat.js"></script>
     <!-- 
       initialize the SDK after all desired features are loaded, set useEmulator to false
       to avoid connecting the SDK to running emulators.
@@ -26,26 +20,148 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
   
-
     <script src="https://www.gstatic.com/firebasejs/ui/6.0.1/firebase-ui-auth.js"></script>
     <link type="text/css" rel="stylesheet" href="https://www.gstatic.com/firebasejs/ui/6.0.1/firebase-ui-auth.css" />
 
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
 
+    <script src="https://use.fontawesome.com/releases/v6.2.0/js/all.js"></script>
+
     <style>
 
-      /* #firebaseui-auth-container { */
-        /* display: none; */
-        /* z-index: 5; */
-        /* position: fixed; */
-        /* min-width: 500px; */
-        /* margin-left: -250px;  */
-        /* left: 50%; */
-        /* min-height: 500px; */
-        /* margin-top: -250px; */
-        /* top: 50%; */
-      /* }  */
+      :root {
+        --car-color: #FF9800;
+        --house-color: #0288D1;
+        --shop-color: #7B1FA2;
+        --warehouse-color: #558B2F;
+      }
 
+      .driver {
+        align-items: center;
+        background-color: #FFFFFF;
+        border-radius: 50%;
+        color: #263238;
+        display: flex;
+        font-size: 14px;
+        gap: 15px;
+        height: 30px;
+        justify-content: center;
+        padding: 4px;
+        position: relative;
+        position: relative;
+        transition: all 0.3s ease-out;
+        width: 30px;
+        transform: translateY(-9px);
+      }
+
+
+      .driver::after {
+        border-left: 9px solid transparent;
+        border-right: 9px solid transparent;
+        border-top: 9px solid #FFFFFF;
+        content: "";
+        height: 0;
+        left: 50%;
+        position: absolute;
+        top: 95%;
+        transform: translate(-50%, 0);
+        transition: all 0.3s ease-out;
+        width: 0;
+        z-index: 1;
+      }
+
+      .driver .icon {
+        align-items: center;
+        display: flex;
+        justify-content: center;
+        color: #FFFFFF;
+      }
+
+
+      .driver .icon svg {
+        height: 20px;
+        width: auto;
+      }
+
+      .driver .details {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+      }
+
+      .driver .address {
+        color: #9E9E9E;
+        font-size: 10px;
+        margin-bottom: 10px;
+        margin-top: 5px;
+      }
+
+      .driver .features {
+        align-items: flex-end;
+        display: flex;
+        flex-direction: row;
+        gap: 10px;
+      }
+
+      .driver .features > div {
+        align-items: center;
+        background: #F5F5F5;
+        border-radius: 5px;
+        border: 1px solid #ccc;
+        display: flex;
+        font-size: 10px;
+        gap: 5px;
+        padding: 5px;
+      }
+
+      .driver.highlight {
+        background-color: #FFFFFF;
+        border-radius: 8px;
+        box-shadow: 10px 10px 5px rgba(0, 0, 0, 0.2);
+        height: 80px;
+        padding: 8px 15px;
+        width: auto;
+      }
+
+      .driver.highlight::after {
+        border-top: 9px solid #FFFFFF;
+      }
+
+      .driver.highlight .details {
+        display: flex;
+      }
+
+      .driver.highlight .icon svg {
+        width: 50px;
+        height: 50px;
+      }
+
+      .driver .bed {
+        color: #FFA000;
+      }
+
+      .driver .bath {
+        color: #03A9F4;
+      }
+
+      .driver .size {
+        color: #388E3C;
+      }
+
+      /*
+      * Car icon colors.
+      */
+      .driver.highlight:has(.fa-car) .icon {
+        color: var(--car-color);
+      }
+
+      .driver:not(.highlight):has(.fa-car) {
+        background-color: var(--car-color);
+      }
+
+      .driver:not(.highlight):has(.fa-car)::after {
+        border-top: 9px solid var(--car-color);
+      }
 
       #mapDiv {
         margin:auto;
@@ -58,7 +174,7 @@
       }
 
 
-      #request-card {
+      #text-input-card {
         width: 67%;
         background-color: #fff;
         border-radius: 5px;
@@ -67,13 +183,7 @@
         padding: 5px;
         font-family: Roboto, sans-serif;
         font-size: large;
-
-      }
-
-      #request-card-header {
         font-weight: bold;
-        display: inline;
-
       }
 
       #text-input {
@@ -99,16 +209,6 @@
       text-align: center
     }
 
-    #card-heading {
-      display: inline;
-    }
-
-    #pay-button {
-      margin: 5px;
-      /* justify-content: flex-end; */
-      float: right;
-      display: inline;
-    }
 
     #btn-signin.hide {
       visibility: hidden;
@@ -116,6 +216,11 @@
     }
 
     #btn-signout.hide {
+      visibility: hidden;
+
+    }
+
+    #mapDiv.hide {
       visibility: hidden;
 
     }
@@ -151,10 +256,6 @@
             <li class="nav-item">
               <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
             </li>
-            <li class="nav-item">
-              <button class="btn btn-light" id="btn-cancel-request" onclick="cancelRequest()"  type="button">Cancel Request</button>
-
-            </li>
           </ul>
         </div>
         
@@ -163,17 +264,13 @@
 
     <div id="firebaseui-auth-container"></div>
 
-    <div id="request-card">
-      <div id="request-card-header">
-        <h2 id="card-heading">Request</h2>
-        <button class="btn btn-light" id="pay-button" value="Pay">Pay</button>
-      </div>
-      <div id="request-ts"></div>
-      <div id="request-distance"></div>
-      <div id="request-time"></div>
+    <button class="btn btn-primary customBtn" id="btn-location" onclick="getUserLocation()">My Location</button>
+    <!-- <button class="btn btn-primary" id="btn-request" value="Request" data-bs-toggle="offcanvas" data-bs-target="#bottomSheetOffcanvas" aria-controls="bottomSheetOffcanvas">Request</button> -->
 
+
+    <div id="text-input-card">
+    
     </div>
-
 
     <div id="routeControl" class="modal" tabindex="-1" role="dialog">
       <div class="modal-dialog" role="document">
@@ -196,7 +293,7 @@
       </div>
     </div>
 
-    <div class="offcanvas offcanvas-bottom" tabindex="-1" id="bottomSheetOffcanvas" aria-labelledby="bottomSheetOffcanvasLabel">
+    <div class="offcanvas offcanvas-bottom" data-bs-backdrop="static" tabindex="-1" id="bottomSheetOffcanvas" aria-labelledby="bottomSheetOffcanvasLabel">
       <div class="offcanvas-header">
         <h5 class="offcanvas-title" id="bottomSheetOffcanvasLabel">Request Details</h5>
 
@@ -204,10 +301,17 @@
       </div>
       <div class="offcanvas-body">
 
-        <ol type="A" id="req-node-list">
+        <ol class="list-group" type="A" id="req-node-list">
 
         </ol>
       </div>
+    </div>
+
+    <div id="driver-alert" class="alert alert-warning alert-dismissible fade show" role="alert">
+      Sorry, no drivers are currently online.
+      <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
+        <!-- <span aria-hidden="true">&times;</span> -->
+      </button>
     </div>
 
     <div id="mapDiv"></div>
@@ -249,15 +353,58 @@
           zoomControl: true,
         });
 
-        const card = document.getElementById('request-card');
-        map.controls[google.maps.ControlPosition.TOP_LEFT].push(card);
+        // map.controls[google.maps.ControlPosition.TOP_CENTER].push(requestButton);
+        const placeAutocomplete = new google.maps.places.PlaceAutocompleteElement();
 
-        const payButton = document.getElementById('pay-button');
+        // Add the gmp-placeselect listener, and display the results on the map.
+        placeAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
+            const place = placePrediction.toPlace();
+            await place.fetchFields({ fields: ['displayName', 'formattedAddress', 'location'] });
 
-        payButton.addEventListener("click", () => {
-          window.open("https://buy.stripe.com/4gM8wP1RD1pab500xS3cc02");
+            const bounds = map.getBounds().extend(place.location);
+            map.fitBounds(bounds);
 
+            let content = '<div id="infowindow-content">' +
+                '<span id="place-displayname" class="title">' + place.displayName + '</span><br />' +
+                '<span id="place-address">' + place.formattedAddress + '</span>' +
+                '</div>';
+            updateInfoWindow(content, place.location);
+            //marker.position = place.location;
+            
+            $("#btn-add-to-route").data("address", place.formattedAddress);
+            $("#modal-address").html(place.formattedAddress);
+            $("#btn-add-to-route").data("position", place.location);
+            $('#routeControl').modal('show');
         });
+
+        const textInputCard = document.getElementById('text-input-card');
+        textInputCard.appendChild(placeAutocomplete);
+
+
+        map.controls[google.maps.ControlPosition.TOP_LEFT].push(textInputCard);
+        const btnLocation = document.getElementById('btn-location');
+        // const btnRequest = document.getElementById('btn-request');
+        map.controls[google.maps.ControlPosition.RIGHT_TOP].push(btnLocation);
+        // map.controls[google.maps.ControlPosition.RIGHT_TOP].push(btnRequest);
+
+        infoWindow = new google.maps.InfoWindow();
+
+
+
+
+      }
+
+      function sendRequest() {
+
+        const user = auth.currentUser;
+        if (user == null) {
+          toastMessage("Please sign in to make a request.");
+          pendingClick = true;
+          signIn();
+        } else {
+          addRequest(user);
+
+        }
 
       }
 
@@ -291,22 +438,73 @@
 
       }
 
+      async function addRequest(user) {
 
-      async function updateLocation(position) {
 
-        const user = auth.currentUser;
-        if (user != null) {
-
-          const userRef = doc(firestore, "users", user.uid);
-
-          await setDoc(userRef, {
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-            accuracy: position.coords.accuracy,
-            positionTS: serverTimestamp(),
-          }, { merge: true });
+        if(MARKERS.size < 2) {
+          toastMessage("Please add pickup and destination locations to map.");
+          return;
         }
+
+
+        const routes = await routeRequest();
+
+
+
+        const iterator = MARKERS.entries();
+        const array = iterator.toArray();
+        const lastIndex = array.length - 1;
+
+        const origin = array[0][1].position;
+        const destination = array[lastIndex][1].position;
+
+        const orderedList = document.getElementById('req-node-list'); 
+        const listItems = orderedList.children; 
+
+        const requestRec = {
+          user: user.uid,
+          requestTS: serverTimestamp(),
+          pickup: origin.toJSON(),
+          destination: destination.toJSON(),
+          status: "new",
+          route: routes[0].toJSON(),
+          numNodes: listItems.length,
+
+        };
+        
+
+        for (let i = 0; i < listItems.length; i++) {
+            let label = labels[i % labels.length];
+            
+            const listItem = listItems[i];
+            const itemText = listItem.textContent; // Get the text content of the list item
+            requestRec[label] = itemText;
+        }        
+
+        // Add a new document with a generated id.
+        const requestRef = await addDoc(collection(firestore, "requests"), requestRec);
+
+
+        console.log("Request written with ID: ", requestRef.id);
+
+        // Add a new document with a generated id.
+        await setDoc(doc(firestore, "users", user.uid), {
+          status: "OPEN_REQUEST",
+          requestReference: requestRef.id,
+          requestTS: serverTimestamp(),
+        }, {merge: true});
+
+        const baseUrl = "https://travelingsalesman.web.app/request.html";
+        const requestId = doc.id;
+
+        const requestUrl = new URL(baseUrl);
+        requestUrl.searchParams.append("id", requestRef.id);
+        window.open(requestUrl.href, '_blank');
+
+
       }
+
+
 
       function getUserData(user) {
 
@@ -407,15 +605,50 @@
           position: latLng,
           title: label,
           content: pinTextGlyph.element,
+          gmpDraggable: true,
+          gmpClickable: true,
 
         });
         MARKERS.set(label, marker);
 
+        // marker.addListener('dragend', (event) => {
+        //   const position = marker.position;
+
+        // });
+
+        marker.addListener('click', (event) => {
+          console.log(event);
+          const position = marker.position;
+          const bsOffcanvas = new bootstrap.Offcanvas('#bottomSheetOffcanvas');
+          bsOffcanvas.show();
+          // event.stopPropagation();
+        });
+
+        marker.addListener('touchstart', (event) => {
+          console.log(event);
+          const position = marker.position;
+          const bsOffcanvas = new bootstrap.Offcanvas('#bottomSheetOffcanvas');
+          bsOffcanvas.show();
+          // event.stopPropagation();
+        });
+
+        marker.addListener('dragend', (event) => {
+          console.log(event);
+          buildPickupRoutes();
+        });
+
         const newNode = document.createElement("li");
         newNode.textContent = address;
+        newNode.classList.add("list-group-item");
         $("#req-node-list").append(newNode);
 
+        if (label == "A") {
+          buildPickupRoutes();
+        } else {
 
+          const bounds = map.getBounds().extend(latLng);
+          map.fitBounds(bounds);
+        }
 
 
       }
@@ -430,15 +663,14 @@
         });
       }
 
-      async function routeRequest(data) {
+      async function routeRequest() {
           // Import the Routes library.
-        const { Route } = await google.maps.importLibrary('routes');
         const iterator = MARKERS.entries();
         const array = iterator.toArray();
         const arrSize = array.length - 1;
 
-        const origin = data.pickup;
-        const destination = data.destination;
+        const origin = array[0][1].position;
+        const destination = array[arrSize][1].position;
 
         console.log(origin);
 
@@ -447,57 +679,34 @@
           origin: origin,
           destination: destination,
           travelMode: 'DRIVING',
-          fields: ['path', 'description', 'distanceMeters', 'durationMillis', 'viewport'], // Request fields needed to draw polylines.
+          fields: ['path', 'description', 'distanceMeters', 'durationMillis'], // Request fields needed to draw polylines.
         };
 
         // Call the computeRoutes() method to get routes.
         const {routes} = await Route.computeRoutes(request);
 
+        console.log(routes[0].toJSON());
 
-          // Call createPolylines to create polylines for the first route.
-        const mapPolylines = routes[0].createPolylines();
-        const markers = routes[0].createWaypointAdvancedMarkers({map: map});
-        // Add polylines to the map.
-        mapPolylines.forEach((polyline) => polyline.setMap(map));
-        map.fitBounds(routes[0].viewport);
-    
-        const distance = (routes[0].distanceMeters / 1000) * 0.621371;
-        const duration = (routes[0].durationMillis / 1000) / 60;
-
-        document.getElementById("request-distance").innerHTML = distance.toFixed(1) + " miles";
-        document.getElementById("request-time").innerHTML = duration.toFixed(1) + " minutes";
-
-
-        console.log(distance + ", " + duration);
-
-
-
-
+        return routes;
         
       }
       
-      function getRequest(id) {
+      function getRequests(user) {
 
-        const unsub = onSnapshot(doc(firestore, "requests", id), (snapshot) => {
-          console.log("Current data: ", snapshot.data());
-          const data = snapshot.data();
+        const q = query(collection(firestore, "requests"), 
+          where("user", "==", user.uid), where("status", "not-in", ["completed", "closed", "canceled"]));
+          const unsubscribe = onSnapshot(q, (querySnapshot) => {
 
-          if (data == null) {
-            toastMessage("Request data not found.");
-            return;
-          }
+          const requests = [];
+          querySnapshot.forEach((doc) => {
+              // const baseUrl = "https://travelingsalesman.web.app/request.html";
+              // const requestId = doc.id;
 
-          if ("requestTS" in data) {
-            document.getElementById("request-ts").innerHTML = 
-              data.requestTS.toDate().toLocaleString();
-          }
-
-          if ("pickup" in data && "destination" in data) {
-            routeRequest(data);
-          }
-
-
-
+              // const requestUrl = new URL(baseUrl);
+              // requestUrl.searchParams.append("id", requestId);
+              // window.open(requestUrl.href, '_blank');
+          });
+              
         });
 
       }
@@ -574,6 +783,7 @@
 
       async function getUserLocation() {
 
+        
         if (navigator.geolocation) {
           
           await navigator.geolocation.getCurrentPosition((position) => {
@@ -631,11 +841,11 @@
 
       function signIn() {
 
-        const ui = new firebaseui.auth.AuthUI(firebase.auth());
 
         const uiConfig = {
           callbacks: {
             signInSuccessWithAuthResult: (authResult, redirectUrl) => {
+              
               // Return type determines whether we continue the redirect automatically
               document.getElementById('mapDiv').classList.remove("hide");
               return false;
@@ -645,24 +855,22 @@
             }
           }, signInFlow: 'popup',
           signInOptions: [
-            // firebase.auth.EmailAuthProvider.PROVIDER_ID,
-            // firebase.auth.GoogleAuthProvider.PROVIDER_ID,
+            firebase.auth.EmailAuthProvider.PROVIDER_ID,
+            firebase.auth.GoogleAuthProvider.PROVIDER_ID,
             {
               provider: firebase.auth.PhoneAuthProvider.PROVIDER_ID,
-              recaptchaParameters: {
-              type: 'image', // 'audio'
-              size: 'invisible', // 'invisible' or 'compact'
-              badge: 'bottomright' //' bottomright' or 'inline' applies to invisible.
-              },
+              // recaptchaParameters: {
+              // type: 'image', // 'audio'
+              // size: 'invisible', // 'invisible' or 'compact'
+              // badge: 'bottomright' //' bottomright' or 'inline' applies to invisible.
+              // },
             }
           ],
           privacyPolicyUrl: 'https://organicsystemsllc.com/privacy.html',
-
-
           tosUrl: 'https://organicsystemsllc.com/privacy.html',
         };
 
-        ui.start('#firebaseui-auth-container', uiConfig);
+        AuthUI.start('#firebaseui-auth-container', uiConfig);
         
       }
 
@@ -679,16 +887,202 @@
 
       }
 
+      async function getActiveDrivers() {
+        
+        // const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
 
-     async function cancelRequest() {
-          
-        const requestRef = doc(firestore, "requests", mRequestId);
+        const driverQuery = query(collection(firestore, "drivers"), where("isOnline", "==", true));
+        const unsubscribe = onSnapshot(driverQuery, (snapshot) => {
+          // const bounds = mMap.getBounds();
 
-        await setDoc(requestRef, {
-          status: "Canceled",
-          statusDescription: "User canceled request.",
-          updatedTS: serverTimestamp(),
-        }, { merge: true });
+          snapshot.docChanges().forEach((change) => {
+            const driverId = change.doc.id;
+            console.log(driverId);
+            if (change.type === "added") {
+              console.log("New driver: ", change.doc.data());
+
+              if (change.doc.data().latitude && change.doc.data().longitude) {
+                const pos = { lat: change.doc.data().latitude, lng: change.doc.data().longitude };
+                const driverData = change.doc.data();
+                // A marker with a with a URL pointing to a PNG.
+                const carImg = document.createElement("img");
+                carImg.src = "https://hughscar.com/images/icons8-car-24.png";
+                
+                const pinScaled = new PinElement({
+                  background: '#FFFFFF',
+                  scale: 1.2,
+                  // glyph: carImg,
+                });
+
+                let titleText = "Driver is online";
+                if (change.doc.data().updated != null) {
+                  const updatedDate = change.doc.data().updated;
+                  if (change.doc.data().name != null) {
+                    titleText = change.doc.data().name + " is online at " + updatedDate.toDate();
+                  }
+                }
+
+                // Create a marker for each place.
+                const marker = new AdvancedMarkerElement({
+                  map: map,
+                  position: pos,
+                  content: buildContent(driverData),
+                  title: titleText,
+                  gmpClickable: true,
+
+                });
+                // bounds.extend(pos);
+                marker.gmpClickable = true;
+                marker.addListener("click", (event) => {
+                  console.log(event);
+                  $('#btn-request-now').data("driverId", change.doc.id);
+                  $('#btn-request-now').data("token", change.doc.data().token);   
+                  $('#requestModal').modal('show');
+                  toggleHighlight(marker, driverData);
+
+                });
+
+
+
+                DRIVER_MARKERS.set(driverId, marker);
+
+                const bounds = map.getBounds().extend(pos);
+                map.fitBounds(bounds);
+              }
+
+        
+            }
+
+            if (change.type === "modified") {
+              console.log("Modified driver: ", change.doc.data());
+              const marker = DRIVER_MARKERS.get(driverId);
+              console.log(marker);
+  
+              if (change.doc.data().latitude && change.doc.data().longitude) {
+                const pos = { lat: change.doc.data().latitude, lng: change.doc.data().longitude };
+                marker.position = pos;
+              }
+              if (change.doc.data().updated != null) {
+                const updatedDate = change.doc.data().updated;
+                let titleText = "Driver is online";
+                if (change.doc.data().name != null) {
+                  titleText = change.doc.data().name + " is online at " + updatedDate.toDate();
+                  marker.setTitle = titleText;
+              }
+            }
+          }
+            
+            if (change.type === "removed") {
+              console.log("Removed driver: ", change.doc.data());
+              const marker = DRIVER_MARKERS.get(driverId);
+              DRIVER_MARKERS.delete(driverId);
+              marker.setMap(null);
+            }
+
+            
+          });
+
+          if (DRIVER_MARKERS.size == 0) {
+            $('#driver-alert').alert();
+          } else {
+            $('#driver-alert').alert('close');
+            buildPickupRoutes();
+
+          }
+        
+        
+        });
+
+
+
+      }
+
+      function toggleHighlight(markerView, driver) {
+          if (markerView.content.classList.contains("highlight")) {
+              markerView.content.classList.remove("highlight");
+              markerView.zIndex = null;
+          }
+          else {
+              markerView.content.classList.add("highlight");
+              markerView.zIndex = 1;
+          }
+      }
+
+      function buildContent(driver) {
+          const content = document.createElement("div");
+          content.classList.add("driver");
+          const date = driver.updated.toDate();
+
+
+          // Format for a specific locale (e.g., en-GB) with desired options
+          const formattedDate = date.toLocaleString('en-GB', {
+            weekday: 'long',
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          });
+
+          content.innerHTML = `
+          <div class="icon">
+              <i aria-hidden="true" class="fa fa-icon fa-${driver.type}" title="${driver.name}"></i>
+              <span class="fa-sr-only">${driver.type}</span>
+          </div>
+          <div class="details">
+              <div class="price">${driver.name}</div>
+              <div class="address">${formattedDate}</div>
+              <div class="features">
+              <button class="btn btn-primary" id="btn-request" value="Request" onclick="sendRequest()">Request</button>
+ 
+
+
+              </div>
+          </div>
+          `;
+          return content;
+      }
+
+      async function buildPickupRoutes() {
+
+
+        if(MARKERS.has("A") != true) {
+          console.log("No pickup location yet");
+          return;
+
+        }
+
+        const pickup = MARKERS.get("A");
+        console.log(pickup);
+
+        for (const driverMarker of DRIVER_MARKERS) {
+          console.log(driverMarker[1]);
+
+          const origin = driverMarker[1].position;
+          const destination = pickup.position;
+
+          // Define a computeRoutes request.
+          const request = {
+            origin: origin,
+            destination: destination,
+            travelMode: 'DRIVING',
+            fields: ['path', 'description', 'distanceMeters', 'durationMillis'], // Request fields needed to draw polylines.
+          };
+
+          // Call the computeRoutes() method to get routes.
+          const {routes} = await Route.computeRoutes(request);
+
+          console.log(routes[0].toJSON());
+
+          if (mapPolylines != null) {
+            mapPolylines.forEach((polyline) => polyline.setMap(null));
+          }
+          // Call createPolylines to create polylines for the first route.
+          mapPolylines = routes[0].createPolylines();
+          // Add polylines to the map.
+          mapPolylines.forEach((polyline) => polyline.setMap(map));
+        
+        }
 
       }
 
@@ -696,21 +1090,26 @@
       window.getUserLocation = getUserLocation;
       window.signIn = signIn;
       window.signOut = signOut;
-      window.cancelRequest = cancelRequest;
+      window.sendRequest = sendRequest;
 
 
       const MARKERS = new Map();
+      const DRIVER_MARKERS = new Map();
+
 
       const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
       const { event } = await google.maps.importLibrary("core");
+      const { Route } = await google.maps.importLibrary('routes');
+
 
       // Import the functions you need from the SDKs you need
-      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-      import { getAnalytics } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-analytics.js";
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-app.js";
+      import { getAnalytics, logEvent } from "https://www.gstatic.com/firebasejs/12.5.0/firebase-analytics.js";
       import { doc, setDoc, getDoc, addDoc, updateDoc, deleteDoc, deleteField, getFirestore, onSnapshot, collection, query, where, serverTimestamp } 
-      from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-      import { getAuth, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1//firebase-auth.js"
+      from "https://www.gstatic.com/firebasejs/12.5.0/firebase-firestore.js";
+      import { getAuth, onAuthStateChanged, RecaptchaVerifier } from "https://www.gstatic.com/firebasejs/12.5.0//firebase-auth.js"
     
+
 
       const firebaseConfig = {
         apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -719,7 +1118,7 @@
         storageBucket: "osweb-140a8.firebasestorage.app",
         messagingSenderId: "939475367267",
         appId: "1:939475367267:web:ae83ef6f5b26ea525f4f56",
-        measurementId: "G-GWDJ4TQSSY"
+        measurementId: "G-GWDJ4TQSSY",
       };
 
       // Initialize Firebase
@@ -729,7 +1128,9 @@
       let map;
       let markers;
       let infoWindow;
-      let mRequestId;
+      let pendingClick;
+      let mapPolylines;
+    
 
       const labels = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
       const { Place } = await google.maps.importLibrary("places");
@@ -740,11 +1141,20 @@
       heading.innerHTML = "Traveling Salesman";
 
       const auth = getAuth();
+      const AuthUI = new firebaseui.auth.AuthUI(firebase.auth());
+
+
+      auth.useDeviceLanguage();
       onAuthStateChanged(auth, (user) => {
         if (user) {
+          pendingClick = false;
           const uid = user.uid;
           getUserData(user);
+          getRequests(user);
+          // getResponses(user);
 
+          // document.getElementById("btn-request").setAttribute('data-bs-toggle', 'offcanvas');
+          // document.getElementById("btn-request").setAttribute('data-bs-target', '#bottomSheetOffcanvas');
 
           document.getElementById("btn-signin").classList.add("disabled");
           document.getElementById("btn-signout").classList.remove("disabled");
@@ -753,6 +1163,8 @@
 
         } else {
 
+          // document.getElementById("btn-request").removeAttribute('data-bs-toggle');
+          // document.getElementById("btn-request").removeAttribute('data-bs-target');
           document.getElementById("btn-signout").classList.add("disabled");
           document.getElementById("btn-signin").classList.remove("disabled");
 
@@ -761,18 +1173,18 @@
       });
 
 
+      window.recaptchaVerifier = new RecaptchaVerifier(auth, 'firebaseui-auth-container', {});
+
 
       await init();
+      await getActiveDrivers();
 
       
       const params = getQueryParameters(window.location.href);
       if ('id' in params) {
-        console.log(params);
-        mRequestId = params.id;
-        getRequest(params.id);
-
+        // getSingleNode(params.id);
       } else {
-        toastMessage("Missing id in query.");
+        // getAllNodes();
       }
 
     </script>
