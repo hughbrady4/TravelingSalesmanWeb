@@ -1,8 +1,117 @@
 rules_version = '2';
+// service cloud.firestore {
+//   match /databases/{database}/documents {
+//     match /{document=**} {
+//       allow read, write: if request.time < timestamp.date(2025, 6, 28);
+//     }
+//   }
+// }
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2025, 5, 28);
+  
+    // Stripe Accounts collection - documents are keyed by Stripe account ID
+    // and carry the owning user's UID in the document data.
+    match /stripeAccounts/{stripeAccountId} {
+      allow read: if request.auth != null && request.auth.uid == resource.data.userId;
+      allow write: if request.auth != null && request.auth.uid == request.resource.data.userId;
     }
+  
+  
+    // Allow only authenticated content owners access
+    match /users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    
+    
+    	match /nodes/{nodeId=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      match /routes/{routeId=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+      
+      match /requests/{requestId=**} {
+        allow read, write: if request.auth != null && request.auth.uid == userId;
+      }
+    
+    }
+    
+    match /requests/{requestId=**} {
+      allow read, write: if request.auth != null;
+    
+    }
+    
+    match /responses/{responseId=**} {
+      allow read, write: if request.auth != null;
+    
+    }
+    
+    match /drivers/{userId} {
+      allow read: if true;
+      allow write: if request.auth != null && request.auth.uid == userId;
+    }
+    
+    match /customers/{uid} {
+      allow read: if request.auth.uid == uid;
+
+      match /checkout_sessions/{id} {
+        allow read, write: if request.auth.uid == uid;
+      }
+      match /subscriptions/{id} {
+        allow read: if request.auth.uid == uid;
+      }
+      match /payments/{id} {
+        allow read: if request.auth.uid == uid;
+      }
+    }
+
+    match /products/{id} {
+      allow read: if true;
+
+      match /prices/{id} {
+        allow read: if true;
+      }
+
+      match /tax_rates/{id} {
+        allow read: if true;
+      }
+    }
+    
+    // Contact chat messages
+    match /contactMessages/{messageId} {
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.senderId
+        && request.resource.data.keys().hasAll(["sessionId", "senderId", "text", "type", "createdAt"])
+        && request.resource.data.sessionId is string
+        && request.resource.data.senderId is string
+        && request.resource.data.text is string
+        && request.resource.data.type in ["sent", "received"]
+        && request.resource.data.createdAt is timestamp;
+      allow read: if true;
+      allow update, delete: if false;
+    }
+
+    match /admins/{adminId} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null && request.auth.uid == adminId;
+    }
+
+    // Chat sessions
+    match /chatSessions/{sessionId} {
+      allow create: if request.auth != null
+        && request.auth.uid == request.resource.data.userUid
+        && request.resource.data.keys().hasAll(["sessionId", "userUid", "adminUids", "createdAt", "updatedAt"])
+        && request.resource.data.sessionId is string
+        && request.resource.data.userUid is string
+        && request.resource.data.adminUids is list
+        && request.resource.data.adminUids.size() > 0
+        && request.resource.data.adminUids.all(uid => uid is string && exists(/databases/$(database)/documents/admins/$(uid)))
+        && request.resource.data.createdAt is timestamp
+        && request.resource.data.updatedAt is timestamp;
+      allow read: if true;
+      allow update, delete: if false;
+    }
+  	
+    
   }
 }

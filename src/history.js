@@ -26,7 +26,7 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
-const firestore = getFirestore(app);
+const firestore = getFirestore(app, "travelingsalesman");
 
 onAuthStateChanged(auth, user => {
     if (user != null) {

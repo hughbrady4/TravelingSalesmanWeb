@@ -10,7 +10,7 @@ import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firest
 import {getAuth} from "firebase-admin/auth";
 import {log, warn} from "firebase-functions/logger";
 
-import {initializeApp} from "firebase-admin/app";
+import {initializeApp, applicationDefault} from "firebase-admin/app";
 
 import {getMessaging} from "firebase-admin/messaging";
 import {getFirestore} from "firebase-admin/firestore";
@@ -20,9 +20,12 @@ import {defineSecret} from "firebase-functions/params";
 import {onCall, HttpsError, onRequest} from "firebase-functions/https";
 import {logger} from "firebase-functions";
 
-initializeApp();
+const app = initializeApp( {
+  credential: applicationDefault(),
+  projectId: "osweb-140a8",
+});
 
-const db = getFirestore();
+const db = getFirestore(app, "travelingsalesman");
 
 const messaging = getMessaging();
 
@@ -87,6 +90,17 @@ export const createConnectedAccount = onCall(
         ],
       });
 
+      // Store account information in Firestore keyed by Stripe account ID
+      const userId = request.auth.uid;
+      await db.collection("stripeAccounts").doc(account.id).set({
+        userId,
+        companyName: companyName,
+        email: email,
+        createdAt: new Date(),
+        status: "pending",
+      }, {merge: true});
+
+      log(`Stripe account created for user ${userId}: ${account.id}`);
 
       return {accountId: account.id};
     });
@@ -105,11 +119,12 @@ export const createAccountLink = onCall(
           type: "account_onboarding",
           account_onboarding: {
             configurations: ["merchant", "customer"],
-            refresh_url: "https://organicsystemsllc.com",
-            return_url: `https://organicsystemsllc.com?accountId=${accountId}`,
+            refresh_url: "https://travelingsalesman.web.app",
+            return_url: `https://travelingsalesman.web.app`,
           },
         },
       });
+
       return {url: accountLink.url};
     });
 
@@ -132,13 +147,15 @@ export const getAccountStatus = onCall(
       const summaryStatus = account.requirements?.summary?.minimum_deadline?.status;
       const detailsSubmitted = !summaryStatus || summaryStatus === "eventually_due";
 
-      return {
-        id: account.id,
-        payoutsEnabled,
-        chargesEnabled,
-        detailsSubmitted,
-        accountStatus: account.requirements?.currently_due || [],
-      };
+      const resultData = account.toJSON();
+      resultData.payoutsEnabled = payoutsEnabled;
+      resultData.chargesEnabled = chargesEnabled;
+      resultData.detailsSubmitted = detailsSubmitted;
+
+      // Persist account status to Firestore account collection
+      await db.collection("stripeAccounts").doc(account.id).set(resultData, {merge: true});
+
+      return resultData;
     });
 
 export const createProduct = onCall(
@@ -196,10 +213,7 @@ export const listProducts = onCall(
 
       const products = await stripe.products.list({
         expand: ["data.product"],
-        active: true,
-        limit: 100,
-      },
-      options);
+      }, options);
 
       return {products: products.data};
     });
@@ -293,7 +307,7 @@ export const getPaymentLink = onCall(async (request) => {
 });
 
 export const createRequest =
-  onDocumentCreated("requests/{requestId}", async (event) => {
+  onDocumentCreated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
     const request = event.params.requestId;
     log("New request: " + request);
 
@@ -348,9 +362,76 @@ export const createRequest =
         batchResponse);
   });
 
+// Triggered when a new chat message is created in Firestore.
+export const chatMessageCreated = onDocumentCreated(
+    {document: "contactMessages/{messageId}", database: "travelingsalesman"},
+    async (event) => {
+      const messageId = event.params.messageId;
+      log("New chat message: " + messageId);
+
+      const snapshot = event.data;
+      if (!snapshot) {
+        log("No data associated with the chat message event");
+        return;
+      }
+
+      const data = snapshot.data();
+      if (!data) {
+        log("Chat message has no data");
+        return;
+      }
+
+      const sessionId = data.sessionId;
+      if (!sessionId) {
+        log("Chat message missing sessionId");
+        return;
+      }
+
+      try {
+        const sessionRef = db.collection("chatSessions").doc(sessionId);
+        const sessionSnap = await sessionRef.get();
+        if (!sessionSnap.exists) {
+          log(`No chat session found for ${sessionId}`);
+          return;
+        }
+
+        const sessionData = sessionSnap.data() || {};
+        const messageSenderId = data.senderId || null;
+        const sessionUserUid = sessionData.userUid || null;
+
+        // If the message sender is the same as the session owner, do not send a notification.
+        if (messageSenderId && sessionUserUid && messageSenderId === sessionUserUid) {
+          log(`Message ${messageId} originated from session owner; skipping notification.`);
+          return;
+        }
+
+        const token = sessionData.notificationToken || null;
+        if (!token) {
+          log(`No notification token for session ${sessionId}`);
+          return;
+        }
+
+        const notificationPayload = {
+          token: token,
+          data: {
+            body: data.text ? String(data.text).slice(0, 240) : "",
+            title: "New support message",
+            sessionId: String(sessionId),
+            messageId: String(messageId),
+          },
+        };
+
+        const response = await messaging.send(notificationPayload);
+        log(`Notification sent for message ${messageId}: ${response}`);
+      } catch (err) {
+        warn("Failed to send chat message notification:", err);
+      }
+    },
+);
+
 
 export const requestUpdated =
-    onDocumentUpdated("requests/{requestId}", async (event) => {
+    onDocumentUpdated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
       const requestId = event.params.requestId;
       log("Request updated: " + requestId);
 

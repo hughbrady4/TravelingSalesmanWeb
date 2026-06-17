@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Traveling Salesman</title>
+
+
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
+  
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+
+    <script src="https://use.fontawesome.com/releases/v6.2.0/js/all.js"></script>
+
+    <script defer src="index.bundle.js"></script>
+
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-VJEDFJ82QG">
+    </script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-VJEDFJ82QG');
+    </script>
+
+    <style>
+      .list-group-alpha {
+        list-style: none; /* Remove default list styling */
+        counter-reset: alpha-counter; /* Initialize a counter */
+      }
+
+      .list-group-alpha .list-group-item::before {
+        counter-increment: alpha-counter; /* Increment the counter for each item */
+        content: counter(alpha-counter, upper-alpha) ". "; /* Display the letter and a period */
+        margin-right: 0.5rem; /* Add some spacing */
+        font-weight: bold; /* Optional: make the letter bold */
+      }
+
+      #mapDiv {
+        margin:auto;
+        height: 500px;
+      }
+
+                  :root {
+        --car-color: #FF9800;
+        }
+
+
+                  .driver {
+        align-items: center;
+        background-color: #FFFFFF;
+        border-radius: 50%;
+        color: #263238;
+        display: flex;
+        font-size: 14px;
+        gap: 15px;
+        height: 30px;
+        justify-content: center;
+        padding: 4px;
+        position: relative;
+        position: relative;
+        transition: all 0.3s ease-out;
+        width: 30px;
+        transform: translateY(-9px);
+      }
+
+
+      .driver::after {
+        border-left: 9px solid transparent;
+        border-right: 9px solid transparent;
+        border-top: 9px solid #FFFFFF;
+        content: "";
+        height: 0;
+        left: 50%;
+        position: absolute;
+        top: 95%;
+        transform: translate(-50%, 0);
+        transition: all 0.3s ease-out;
+        width: 0;
+        z-index: 1;
+      }
+
+            .driver .icon {
+        align-items: center;
+        display: flex;
+        justify-content: center;
+        color: #FFFFFF;
+      }
+
+            .driver .details {
+        display: none;
+        flex-direction: column;
+        flex: 1;
+      }
+
+            .driver .updated {
+        color: #9E9E9E;
+        font-size: 10px;
+        margin-bottom: 10px;
+        margin-top: 5px;
+      }
+
+            .driver.highlight {
+        background-color: #FFFFFF;
+        border-radius: 8px;
+        box-shadow: 10px 10px 5px rgba(0, 0, 0, 0.2);
+        height: 80px;
+        padding: 8px 15px;
+        width: auto;
+      }
+
+
+      .driver.highlight::after {
+        border-top: 9px solid #FFFFFF;
+      }
+
+      .driver.highlight .details {
+        display: flex;
+      }
+
+      .driver.highlight .icon svg {
+        width: 50px;
+        height: 50px;
+      }
+
+            /*
+      * Car icon colors.
+      */
+      .driver.highlight:has(.fa-car) .icon {
+        color: var(--car-color);
+      }
+
+      .driver:not(.highlight):has(.fa-car) {
+        background-color: var(--car-color);
+      }
+
+      .driver:not(.highlight):has(.fa-car)::after {
+        border-top: 9px solid var(--car-color);
+      }
+
+    </style>
+    
+  </head>
+  <body>
+    <script>
+      (g=>{var h,a,k,p="The Google Maps JavaScript API",c="google",l="importLibrary",q="__ib__",m=document,b=window;b=b[c]||(b[c]={});var d=b.maps||(b.maps={}),r=new Set,e=new URLSearchParams,u=()=>h||(h=new Promise(async(f,n)=>{await (a=m.createElement("script"));e.set("libraries",[...r]+"");for(k in g)e.set(k.replace(/[A-Z]/g,t=>"_"+t[0].toLowerCase()),g[k]);e.set("callback",c+".maps."+q);a.src=`https://maps.${c}apis.com/maps/api/js?`+e;d[q]=f;a.onerror=()=>h=n(Error(p+" could not load."));a.nonce=m.querySelector("script[nonce]")?.nonce||"";m.head.append(a)}));d[l]?console.warn(p+" only loads once. Ignoring:",g):d[l]=(f,...n)=>r.add(f)&&u().then(()=>d[l](f,...n))})({
+        key: "AIzaSyBEE3PbSfTipC6WGZ3DMsGtWGU_LJVHYAc",
+        v: "beta",
+        // Use the 'v' parameter to indicate the version to use (weekly, beta, alpha, etc.).
+        // Add other bootstrap parameters as needed, using camel case.
+      });
+    </script>
+
+    <nav class="navbar navbar-expand-lg navbar-light bg-light mb-1">
+      <div class="container-fluid justify-content-between">
+        <a class="navbar-brand" href="/" id="heading">Traveling Salesman</a>
+
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarSupportedContent" 
+          aria-controls="navbarSupportedContent" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+
+        <div class="collapse navbar-collapse align-content-start" id="navbarSupportedContent">
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-signin" onclick="signIn()"  type="button">Sign In</button>
+            </li>
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-signout" onclick="signOut()"  type="button">Sign Out</button>
+            </li>
+            <li class="nav-item">
+              <button class="btn btn-light" id="btn-history" onclick="requestHistory()"  type="button">History</button>
+            </li>
+          </ul>
+        </div>
+        
+      </div>
+    </nav>
+
+    <div id="main-container" class="container  w-100 m-auto text-center">
+
+      <!-- <div id="driver-alert-none" class="alert alert-warning alert-dismissible fade show" role="alert">
+        Sorry, no drivers are currently online.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
+        </button>
+      </div> -->
+
+
+      <!-- <div id="driver-alert-online" class="alert alert-success alert-dismissible fade show" role="alert">
+        Good news, drivers online. Click <a data-bs-toggle="offcanvas" href="#offcanvasBottom" role="button" aria-controls="offcanvasBottom" class="alert-link">here</a> for current location.
+        <button type="button" class="btn-close" data-bs-dismiss="alert"  aria-label="Close">
+        </button>
+      </div> -->
+
+
+
+      <!-- <div class="mb-3">0 -->
+        <!-- <label for="input-telephone" class="form-label">Phone number</label> -->
+        <!-- <input type="tel" class="form-control" maxlength="12" placeholder="e.g., 123-456-7890" id="input-telephone"> -->
+        <!-- <div id="emailHelp" class="form-text">We'll never share your email with anyone else.</div> -->
+      <!-- </div> -->
+      <!-- <div class="mb-3">
+        <label for="exampleInputPassword1" class="form-label">Password</label>
+        <input type="password" class="form-control" id="exampleInputPassword1">
+      </div> -->
+      <!-- <button class="btn btn-primary mb-3">Log in</button> -->
+
+
+      <h4>Enter pickup and destination:</h4>
+
+      <div id="text-input-card" class="mb-2 position-relative mx-auto" style="display: flex; align-items: center; gap: 10px; max-width: 500px;">
+        <button class="btn btn-primary customBtn" id="btn-location" onclick="getUserLocation()" style="flex-shrink: 0; order: 2;" title="Use my current location"><i class="fas fa-location-dot"></i></button>
+      </div>
+
+      <button class="btn btn-primary customBtn mb-3" id="btn-clear" onclick="clearRouteNodes()">Clear</button>
+      <button class="btn btn-primary customBtn mb-3" id="btn-request" onclick="requestRide()">Price</button>
+    
+
+      <h5>Ride request detail:</h5>
+      <ol class="list-group list-group-alpha" type="A" id="req-node-list"></ol>
+
+
+    </div>
+
+    <div id="routeControl" class="modal" tabindex="-1">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Modify Route</h5>
+            <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+          </div>
+          <div class="modal-body">
+            <p id="modal-paragraph">Would you like to add this place to your route?</p>
+            <p id="modal-address"></p>
+
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+            <button id="btn-add-to-route" type="button" class="btn btn-primary" onclick="addToRoute(this)" data-bs-dismiss="modal">Add</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <div class="offcanvas offcanvas-bottom h-auto" tabindex="-1" id="offcanvasBottom" aria-labelledby="offcanvasBottomLabel">
+      <div class="offcanvas-header">
+        <h5 class="offcanvas-title" id="offcanvasBottomLabel">Map</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"></button>
+      </div>
+      <div class="offcanvas-body">
+      <div id="mapDiv"></div>
+      </div>
+    </div>
+
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+      <div id="toast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+        <!-- <div class="toast-header">
+          <img src="..." class="rounded mr-2" alt="..." />
+          <strong class="mr-auto">Authenticate</strong>
+          <small>11 mins ago</small>
+          <button type="button" class="ml-2 mb-1 close" data-dismiss="toast" aria-label="Close"></button>
+        </div> -->
+        <div id="toast-body" class="toast-body">
+        </div>
+      </div>
+    </div>
+
+
+
+  </body>
+</html>

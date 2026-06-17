@@ -1124,7 +1124,7 @@
       // Initialize Firebase
       const app = initializeApp(firebaseConfig);
       const analytics = getAnalytics(app);
-      const firestore = getFirestore(app);
+      const firestore = getFirestore(app, "travelingsalesman");
       let map;
       let markers;
       let infoWindow;
