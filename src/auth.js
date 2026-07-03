@@ -1,4 +1,4 @@
-import { getAuth, isSignInWithEmailLink, signInWithEmailLink, sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
+import { connectAuthEmulator, getAuth, isSignInWithEmailLink, signInWithEmailLink, sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
 import { initializeApp } from "firebase/app";
 import { getAnalytics, logEvent } from "firebase/analytics";
 
@@ -16,6 +16,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+if (__USE_AUTH_EMULATOR__) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+}
+
 const analytics = getAnalytics(app);
 
 function logAuthEvent(eventName, eventParams = {}) {
@@ -170,7 +175,7 @@ form.addEventListener('submit', (event) => {
   const actionCodeSettings = {
   // URL you want to redirect back to. The domain (www.example.com) for this
   // URL must be in the authorized domains list in the Firebase Console.
-  url: 'https://travelingsalesman.web.app/auth',
+  url: `${window.location.origin}/auth`,
   // This must be true.
   handleCodeInApp: true,
   //   iOS: {

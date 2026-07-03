@@ -1,6 +1,7 @@
 // Import Firebase modules
 import { initializeApp } from 'firebase/app';
 import { 
+  connectAuthEmulator,
   getAuth, 
   onAuthStateChanged, 
   signInWithEmailAndPassword, 
@@ -37,6 +38,10 @@ const app = initializeApp(firebaseConfig);
 
 // Initialize Firebase Authentication and get a reference to the service
 export const auth = getAuth(app);
+
+if (__USE_AUTH_EMULATOR__) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+}
 
 // Initialize Cloud Firestore and get a reference to the service
 export const db = getFirestore(app, "travelingsalesman");
@@ -93,7 +98,7 @@ onAuthStateChanged(auth, (user) => {
     });
 
     // Listen for Stripe account data
-    const stripeQuery = query(collection(db, 'stripeAccounts'), where('userId', '==', user.uid));
+    const stripeQuery = query(collection(db, 'stripeAccounts'), where('userId', '==', user.uid), where('status', '!=', 'archived'));
     const unsubscribe = onSnapshot(stripeQuery, (querySnapshot) => {
       if (!querySnapshot.empty) {
         // Stripe account exists
@@ -125,7 +130,7 @@ onAuthStateChanged(auth, (user) => {
         console.log('No Stripe account found');
         const ctaContainer = document.getElementById('ctaContainer');
         const stripeAccountContainer = document.getElementById('stripeAccountContainer');
-        
+
         if (ctaContainer) ctaContainer.style.display = 'block';
         if (stripeAccountContainer) stripeAccountContainer.style.display = 'none';
 
@@ -147,6 +152,10 @@ onAuthStateChanged(auth, (user) => {
     window.currentSnapshotUnsubscribe = unsubscribe;
   } else {
     logEvent(analytics, 'user_logged_out');
+
+
+            const ctaContainer = document.getElementById('ctaContainer');
+    if (ctaContainer) ctaContainer.style.display = 'block';
 
     // Update UI for logged-out user
     const signInLink = document.getElementById('signInLink');
@@ -210,7 +219,7 @@ export const createUserProfile = async (userId, userData) => {
  */
 export const getStripeAccountInfo = async (userId) => {
   try {
-    const q = query(collection(db, 'stripeAccounts'), where('userId', '==', userId));
+    const q = query(collection(db, 'stripeAccounts'), where('userId', '==', userId), where('status', '!=', 'archived'));
     const querySnapshot = await getDocs(q);
     if (!querySnapshot.empty) {
       return querySnapshot.docs[0].data();
@@ -305,6 +314,7 @@ export const createStripeConnectedAccount = async (companyName, email) => {
   }
 };
 
+
 // ===== ANALYTICS FUNCTIONS =====
 
 /**
@@ -367,17 +377,16 @@ const showProgressSpinner = (show, message = '') => {
 };
 
 /**
- * Handle Get Started button click
+ * Handle Get Started button click - Redirect to detailed form
  * @param {Event} event - Click event
  */
 const handleGetStarted = async (event) => {
   event.preventDefault();
   try {
     const currentUser = auth.currentUser;
-    const getStartedBtn = document.getElementById('getStartedBtn');
     
     if (currentUser && !currentUser.isAnonymous) {
-      // User is signed in
+      // User is signed in - redirect to Get Started form
       logCustomEvent('get_started_clicked', {
         action: 'onboarding_initiated',
         user_signed_in: true,
@@ -385,62 +394,8 @@ const handleGetStarted = async (event) => {
       });
       console.log('User is signed in:', currentUser.email);
       
-      // Prompt for company name
-      const companyName = prompt('Please enter your company name:');
-      
-      if (companyName && companyName.trim()) {
-        try {
-          // Disable button
-          if (getStartedBtn) {
-            getStartedBtn.disabled = true;
-            getStartedBtn.textContent = 'Creating Account...';
-          }
-
-          // Show progress spinner
-          showProgressSpinner(true, 'Creating your Stripe account...');
-          
-          // Create Stripe connected account
-          const stripeAccount = await createStripeConnectedAccount(companyName.trim(), currentUser.email);
-          console.log('Stripe account created:', stripeAccount.accountId);
-          logCustomEvent('stripe_account_setup_initiated', {
-            user_id: currentUser.uid,
-            account_id: stripeAccount.accountId
-          });
-
-          // Update message
-          showProgressSpinner(true, 'Setting up account link...');
-          
-          const stripeAccountLink = httpsCallable(functions, 'createAccountLink');
-          const accountLinkResult = await stripeAccountLink({ accountId: stripeAccount.accountId });
-          console.log('Stripe account link:', accountLinkResult.data.url);
-          logCustomEvent('stripe_account_link_created', {
-            user_id: currentUser.uid,
-            account_id: stripeAccount.accountId
-          });
-
-          // Hide spinner
-          // showProgressSpinner(false);
-          
-          // alert(`Welcome ${currentUser.email}! Stripe account created successfully. Proceeding to onboarding.`);
-          // Redirect to Stripe onboarding
-          window.location.href = accountLinkResult.data.url;
-          // Redirect to onboarding or dashboard
-          // window.location.href = '/onboarding.html';
-        } catch (error) {
-          console.error('Error creating Stripe account:', error);
-          showProgressSpinner(false);
-          
-          // Re-enable button on error
-          if (getStartedBtn) {
-            getStartedBtn.disabled = false;
-            getStartedBtn.textContent = 'Get Started with Onboarding';
-          }
-          
-          alert('Error creating Stripe account. Please try again.');
-        }
-      } else {
-        alert('Company name is required to proceed.');
-      }
+      // Redirect to the Get Started form page
+      window.location.href = '/getstarted.html';
     } else {
       // User is not signed in
       logCustomEvent('get_started_clicked', {
@@ -455,7 +410,6 @@ const handleGetStarted = async (event) => {
     }
   } catch (error) {
     console.error('Error in handleGetStarted:', error);
-    showProgressSpinner(false);
     
     // Re-enable button on error
     const getStartedBtn = document.getElementById('getStartedBtn');
@@ -487,9 +441,19 @@ const handleManageAccount =  async (event) => {
   }
 }
 
+const handleCreateProduct = (event) => {
+  event.preventDefault();
+  window.location.href = '/create-product.html';
+};
+
 const manageAccountBtn = document.getElementById('manageAccountBtn');
 if (manageAccountBtn) {
   manageAccountBtn.addEventListener('click', handleManageAccount);
+}
+
+const createProductBtn = document.getElementById('createProductBtn');
+if (createProductBtn) {
+  createProductBtn.addEventListener('click', handleCreateProduct);
 }
 
 function signIn() {

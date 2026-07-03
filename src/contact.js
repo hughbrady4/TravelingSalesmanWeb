@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import {
   getFirestore,
   serverTimestamp,
@@ -29,6 +29,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+if (__USE_AUTH_EMULATOR__) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+}
+
 const firestore = getFirestore(app, "travelingsalesman");
 const SESSION_STORAGE_KEY = "contactChatSessionId";
 

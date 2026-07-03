@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Get started with Traveling Salesman - Setup your business account">
+    <meta property="og:title" content="Get Started | Traveling Salesman">
+    <meta property="og:description" content="Get started with Traveling Salesman - Setup your business account">
+    <meta property="og:type" content="website">
+    <title>Get Started | Traveling Salesman</title>
+    
+    <!-- Bootstrap 5 CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+
+    <!-- Firebase Integration Script -->
+    <script type="module" src="getstarted.bundle.js" defer></script>
+
+    <!-- Google tag (gtag.js) --> 
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-GWDJ4TQSSY"></script> 
+    <script> 
+        window.dataLayer = window.dataLayer || []; 
+        function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); 
+        gtag('config', 'G-GWDJ4TQSSY'); 
+    </script>
+    <script>
+        function gtag_report_conversion(url) {
+            var callback = function () {
+                if (typeof(url) != 'undefined') {
+                    window.location = url;
+                }
+            };
+            gtag('event', 'conversion', {
+                'send_to': 'AW-995823796/6LziCLvyirQcELSh7NoD',
+                'event_callback': callback
+            });
+            return false;
+        }
+    </script>
+
+    <style>
+        .form-section {
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        .form-card {
+            border: none;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+        .form-card .card-header {
+            background-color: #0d6efd;
+            color: white;
+            padding: 1.5rem;
+        }
+        .form-card .card-body {
+            padding: 2rem;
+        }
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        .business-address-widget {
+            width: 100%;
+        }
+        .business-address-widget gmp-place-autocomplete {
+            width: 100%;
+            display: block;
+        }
+        .btn-submit {
+            width: 100%;
+            padding: 0.75rem;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body class="bg-light">
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="index.html">Traveling Salesman</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="index.html">Home</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="onboard.html">Onboard</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="profile.html">Profile</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="signInLink" href="#">Sign In</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="signOutLink" href="#">Sign Out</a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" id="contactLink" href="#">Contact</a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="py-5">
+        <div class="container">
+            <!-- Form Section -->
+            <div class="form-section">
+                <div class="card form-card">
+                    <div class="card-header">
+                        <h1 class="card-title mb-0">Set Up Your Business Account</h1>
+                    </div>
+                    <div class="card-body">
+                        <p class="text-muted mb-4">Complete the following information to set up your Stripe merchant account.</p>
+                        
+                        <form id="getStartedForm" novalidate>
+                            <!-- Company Name Field -->
+                            <div class="form-group">
+                                <label for="companyName" class="form-label fw-bold">Company Name <span class="text-danger">*</span></label>
+                                <input 
+                                    type="text" 
+                                    class="form-control" 
+                                    id="companyName" 
+                                    name="companyName" 
+                                    placeholder="Enter your company name" 
+                                    required
+                                    minlength="2"
+                                    maxlength="100">
+                                <div class="invalid-feedback">
+                                    Please enter a valid company name (2-100 characters).
+                                </div>
+                            </div>
+
+                            <!-- Email Field -->
+                            <div class="form-group">
+                                <label for="contactEmail" class="form-label fw-bold">Contact Email <span class="text-danger">*</span></label>
+                                <input 
+                                    type="email" 
+                                    class="form-control" 
+                                    id="contactEmail" 
+                                    name="contactEmail" 
+                                    placeholder="Enter your email address" 
+                                    required>
+                                <div class="invalid-feedback">
+                                    Please enter a valid email address.
+                                </div>
+                                <small class="text-muted d-block mt-2">This should be the contact email for your business.</small>
+                            </div>
+
+                            <!-- Business Address Field -->
+                            <div class="form-group">
+                                <label class="form-label fw-bold">Business Address <span class="text-danger">*</span></label>
+                                <div id="businessAddressWidget" class="business-address-widget"></div>
+                                <input type="text" id="businessAddress" name="businessAddress" class="visually-hidden" tabindex="-1" aria-hidden="true" required>
+                                <div class="invalid-feedback">
+                                    Please enter a valid business address.
+                                </div>
+                                <small class="text-muted d-block mt-2">Select an address from Google suggestions to auto-fill this field.</small>
+                            </div>
+
+                            <!-- Business Type Field (Optional) -->
+                            <div class="form-group">
+                                <label for="businessType" class="form-label fw-bold">Business Type</label>
+                                <select class="form-select" id="businessType" name="businessType">
+                                    <option value="">Select a business type</option>
+                                    <option value="service">Service Provider</option>
+                                    <option value="retail">Retail</option>
+                                    <option value="consulting">Consulting</option>
+                                    <option value="other">Other</option>
+                                </select>
+                            </div>
+
+                            <!-- Phone Number Field (Optional) -->
+                            <div class="form-group">
+                                <label for="phoneNumber" class="form-label fw-bold">Phone Number</label>
+                                <input 
+                                    type="tel" 
+                                    class="form-control" 
+                                    id="phoneNumber" 
+                                    name="phoneNumber" 
+                                    placeholder="(123) 456-7890">
+                                <small class="text-muted d-block mt-2">Optional. Used to contact you about your account.</small>
+                            </div>
+
+                            <!-- Hidden Email (from logged-in user) -->
+                            <input type="hidden" id="userEmail" name="userEmail">
+
+                            <!-- Submit Button -->
+                            <button 
+                                type="submit" 
+                                class="btn btn-primary btn-submit btn-lg" 
+                                id="submitBtn">
+                                Create Account & Continue to Stripe
+                            </button>
+
+                            <!-- Back Link -->
+                            <div class="text-center mt-3">
+                                <a href="onboard.html" class="text-muted text-decoration-none">Back to Onboarding</a>
+                            </div>
+                        </form>
+
+                        <!-- Loading State -->
+                        <div id="loadingState" style="display: none;" class="text-center">
+                            <div class="spinner-border text-primary mb-3" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p id="loadingMessage" class="fw-bold text-dark">Creating your account...</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Info Box -->
+                <div class="alert alert-info mt-4" role="alert">
+                    <h6 class="alert-heading fw-bold">Why do we need this?</h6>
+                    <p class="mb-0">We use your company information to set up your Stripe merchant account, which allows you to accept payments from customers securely.</p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Bootstrap 5 JS Bundle -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>

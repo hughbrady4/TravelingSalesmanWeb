@@ -51,7 +51,6 @@ export const createConnectedAccount = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
-
       // Create a Connect account with the specified controller properties
       const account = await stripe.v2.core.accounts.create({
         display_name: companyName,
@@ -62,6 +61,11 @@ export const createConnectedAccount = onCall(
             fees_collector: "stripe",
             losses_collector: "stripe",
           },
+        },
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+          geo_location: request.data.geoLocation || "unknown",
+          geo_code: request.data.geoCode || "unknown",
         },
         identity: {
           country: "US",
@@ -103,6 +107,40 @@ export const createConnectedAccount = onCall(
       log(`Stripe account created for user ${userId}: ${account.id}`);
 
       return {accountId: account.id};
+    });
+
+export const listConnectedAccounts = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const accounts = await stripe.v2.core.accounts.list({
+        limit: 20,
+      });
+
+      // Store account information in Firestore
+      for (const account of accounts.data) {
+        let uid;
+        if (!account.metadata || !account.metadata.tsp_uid) {
+          const userRecord = await getAuth().getUserByEmail(account.contact_email);
+          uid = userRecord.uid;
+        } else {
+          uid = account.metadata.tsp_uid;
+        }
+
+        const accountData = {
+          userId: uid,
+          companyName: account.display_name || "unknown",
+          email: account.contact_email || "unknown",
+          createdAt: new Date(),
+          status: "pending",
+        };
+
+        await db.collection("stripeAccounts").doc(account.id).set(accountData, {merge: true});
+      }
+
+      return {accounts: accounts.data};
     });
 
 export const createAccountLink = onCall(
@@ -147,11 +185,12 @@ export const getAccountStatus = onCall(
       const summaryStatus = account.requirements?.summary?.minimum_deadline?.status;
       const detailsSubmitted = !summaryStatus || summaryStatus === "eventually_due";
 
-      const resultData = account.toJSON();
-      resultData.payoutsEnabled = payoutsEnabled;
-      resultData.chargesEnabled = chargesEnabled;
-      resultData.detailsSubmitted = detailsSubmitted;
-
+      const resultData = {
+        payoutsEnabled: payoutsEnabled,
+        chargesEnabled: chargesEnabled,
+        detailsSubmitted: detailsSubmitted,
+        // summaryStatus: summaryStatus,
+      };
       // Persist account status to Firestore account collection
       await db.collection("stripeAccounts").doc(account.id).set(resultData, {merge: true});
 
@@ -165,7 +204,7 @@ export const createProduct = onCall(
       if (!name) {
         throw new HttpsError("invalid-argument", "The function must be called with a product name.");
       }
-      const description = request.data.descriptio;
+      const description = request.data.description;
       if (!description) {
         throw new HttpsError("invalid-argument", "The function must be called with a product description.");
       }
@@ -174,6 +213,12 @@ export const createProduct = onCall(
         throw new HttpsError("invalid-argument", "The function must be called with a product price.");
       }
       const currency = request.data.currency || "usd";
+      const recurring = request.data.recurring === true;
+      const recurringInterval = request.data.recurringInterval || "month";
+      const allowedIntervals = new Set(["day", "week", "month", "year"]);
+      if (recurring && !allowedIntervals.has(recurringInterval)) {
+        throw new HttpsError("invalid-argument", "Invalid recurring interval. Allowed values: day, week, month, year.");
+      }
       const accountId = request.data.accountId;
       if (!accountId) {
         throw new HttpsError("invalid-argument", "The function must be called with a Stripe account ID.");
@@ -182,20 +227,60 @@ export const createProduct = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
+      // Fetch the Stripe account to get display name
+      const account = await stripe.v2.core.accounts.retrieve(accountId);
+      const accountDisplayName = account.display_name || "Unknown vendor";
+
       const product = await stripe.products.create({
         name: name,
         description: description,
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+        },
       }, {
         stripeAccount: accountId,
       });
 
-      const priceData = await stripe.prices.create({
+      if (accountId) {
+        product.accountId = accountId;
+      }
+
+      if (accountDisplayName) {
+        product.accountDisplayName = accountDisplayName;
+      }
+
+      const userId = request.auth.uid;
+      if (userId) {
+        product.userId = userId;
+      }
+
+      await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
+
+      const priceCreateData = {
         product: product.id,
         unit_amount: Math.round(price * 100), // price in cents
         currency: currency,
-      }, {
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+        },
+      };
+
+      if (recurring) {
+        priceCreateData.recurring = {
+          interval: recurringInterval,
+        };
+      }
+
+      const priceData = await stripe.prices.create(priceCreateData, {
         stripeAccount: accountId,
       });
+
+      if (userId) {
+        priceData.userId = userId;
+      }
+
+      await db.collection("stripePrices").doc(priceData.id).set(priceData, {merge: true});
+
 
       return {productId: product.id, priceId: priceData.id};
     });
@@ -211,11 +296,50 @@ export const listProducts = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
+      // Fetch account display name once if accountId is provided
+      let accountDisplayName = "Unknown vendor";
+      if (accountId) {
+        try {
+          const account = await stripe.v2.core.accounts.retrieve(accountId);
+          accountDisplayName = account.display_name || "Unknown vendor";
+        } catch (error) {
+          log(`Unable to fetch account display name for ${accountId}:`, error.message);
+        }
+      }
+
       const products = await stripe.products.list({
-        expand: ["data.product"],
+        active: true,
+        limit: 100,
       }, options);
 
-      return {products: products.data};
+      for (const product of products.data) {
+        if (accountId) {
+          product.accountId = accountId;
+        }
+        if (accountDisplayName) {
+          product.accountDisplayName = accountDisplayName;
+        }
+        const userId = product.metadata?.tsp_uid || "unknown";
+        if (userId && userId !== "unknown") {
+          product.userId = userId;
+        }
+        await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
+      }
+
+      const prices = await stripe.prices.list({
+        active: true,
+        limit: 100,
+      }, options);
+
+      for (const price of prices.data) {
+        const userId = price.metadata?.tsp_uid || "unknown";
+        if (userId && userId !== "unknown") {
+          price.userId = userId;
+        }
+        await db.collection("stripePrices").doc(price.id).set(price, {merge: true});
+      }
+
+      return {products: products.data, prices: prices.data};
     });
 
 export const createCheckoutSession = onCall(

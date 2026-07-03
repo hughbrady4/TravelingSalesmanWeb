@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from "firebase/auth";
 import { getFirestore, serverTimestamp, collection, getDoc, setDoc, query, where, onSnapshot, doc } from "firebase/firestore";
 const { Place } = await google.maps.importLibrary("places");
 const { AdvancedMarkerElement, PinElement } = await google.maps.importLibrary("marker");
@@ -26,6 +26,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+
+if (__USE_AUTH_EMULATOR__) {
+    connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+}
+
 const firestore = getFirestore(app, "travelingsalesman");
 
 onAuthStateChanged(auth, user => {

@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Merchant Details | Traveling Salesman</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <style>
+    body {
+      background: linear-gradient(180deg, #f8fafc 0%, #eef2ff 100%);
+      min-height: 100vh;
+    }
+    .page-shell {
+      position: relative;
+    }
+    .page-shell::before {
+      content: '';
+      position: absolute;
+      inset: 0 auto auto 50%;
+      width: 18rem;
+      height: 18rem;
+      transform: translateX(-50%);
+      background: radial-gradient(circle, rgba(13,110,253,0.16) 0%, rgba(13,110,253,0) 70%);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
+    <div class="container-fluid">
+      <a class="navbar-brand" href="index.html">Traveling Salesman</a>
+      <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+        <span class="navbar-toggler-icon"></span>
+      </button>
+      <div class="collapse navbar-collapse" id="navbarNav">
+        <ul class="navbar-nav ms-auto">
+          <li class="nav-item">
+            <a class="nav-link" href="index.html">Home</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="onboard.html">Onboard</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="profile.html">Profile</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link active" aria-current="page" href="merchant-details.html">Merchant Details</a>
+          </li>
+          <li class="nav-item">
+            <a class="nav-link" href="contact.html">Contact</a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </nav>
+
+  <main class="page-shell py-5">
+    <div class="container">
+      <div class="row justify-content-center mb-4">
+        <div class="col-12 col-xl-10">
+          <div class="card border-0 shadow-sm overflow-hidden">
+            <div class="card-body p-4 p-md-5">
+              <div class="d-flex flex-column flex-lg-row justify-content-between gap-4 align-items-lg-end">
+                <div>
+                  <p class="text-uppercase text-primary fw-semibold mb-2">Stripe merchant workspace</p>
+                  <h1 id="merchantHeading" class="display-6 fw-semibold mb-3">Merchant details</h1>
+                  <p id="merchantSubheading" class="lead text-body-secondary mb-0">Review connected Stripe accounts, manage each account in Stripe, and inspect product pricing.</p>
+                </div>
+                <div class="d-flex flex-wrap gap-2">
+                  <a href="create-product.html" class="btn btn-primary btn-lg">Create Product</a>
+                  <a href="profile.html" class="btn btn-outline-secondary btn-lg">Back to Profile</a>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="merchantLoading" class="alert alert-info shadow-sm">Loading merchant details...</div>
+
+      <div id="signedOutState" class="alert alert-warning shadow-sm" style="display:none;">
+        <p class="mb-2">You are not signed in.</p>
+        <a href="auth.html" class="btn btn-primary">Sign In</a>
+      </div>
+
+      <div id="signedInState" style="display:none;">
+        <div class="row g-4 align-items-start">
+          <div class="col-12 col-xl-5">
+            <div class="card border-0 shadow-sm h-100">
+              <div class="card-body p-4">
+                <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
+                  <div>
+                    <h2 class="h4 mb-2">Stripe Accounts</h2>
+                    <p class="text-body-secondary mb-0">Generate a Stripe account link for each connected merchant account.</p>
+                  </div>
+                  <span id="accountsSummary" class="badge text-bg-light border">0 Stripe accounts</span>
+                </div>
+                <div id="accountsLoading" class="text-body-secondary small mb-3">Loading Stripe accounts...</div>
+                <div id="accountsEmpty" class="alert alert-light border mb-0" style="display:none;">No Stripe accounts found.</div>
+                <div id="accountsList" class="row g-3" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="col-12 col-xl-7">
+            <div class="card border-0 shadow-sm h-100">
+              <div class="card-body p-4">
+                <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3 mb-3">
+                  <div>
+                    <h2 class="h4 mb-2">Stripe Prices</h2>
+                    <p class="text-body-secondary mb-0">Product names, descriptions, and live prices pulled from each connected account.</p>
+                  </div>
+                  <div class="d-flex align-items-center gap-2">
+                    <span id="pricesSummary" class="badge text-bg-light border">0 active prices</span>
+                    <a href="create-product.html" class="btn btn-outline-primary btn-sm">Create Product</a>
+                  </div>
+                </div>
+                <div id="pricesLoading" class="text-body-secondary small mb-3">Loading Stripe prices...</div>
+                <div id="pricesEmpty" class="alert alert-light border mb-0" style="display:none;">No Stripe prices found.</div>
+                <div id="pricesList" class="row g-3" style="display:none;"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script defer src="merchantdetails.bundle.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js" integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI" crossorigin="anonymous"></script>
+</body>
+</html>

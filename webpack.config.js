@@ -1,54 +1,65 @@
 const path = require('path');
+const webpack = require('webpack');
 
-const rootConfig = {
-  mode: 'development',
-  // mode: 'production',
+module.exports = (env = {}) => {
+  const buildMode = env.buildMode || 'dev';
+  const isDevBuild = buildMode === 'dev';
+  const isBetaBuild = buildMode === 'beta';
+  const webpackMode = isDevBuild ? 'development' : 'production';
+  const devtool = isDevBuild || isBetaBuild ? 'eval-source-map' : false;
 
-  optimization: {
-    usedExports: true, // tells webpack to tree-shake
-  },
-  devtool: 'eval-source-map'
-};
+  const rootConfig = {
+    mode: webpackMode,
+    optimization: {
+      usedExports: true,
+    },
+    devtool,
+  };
 
-const appConfig = {
-  // The entry point file described above
-  entry: {
-    index: './src/index.js',
-    onboard: './src/onboard.js',
-    history: './src/history.js',
-    auth: './src/auth.js',
-    contact: './src/contact.js',
-    profile: './src/profile.js',
-  },
-  // The location of the build folder described above
-  output: {
-    path: path.resolve(__dirname, 'public'),
-    filename: '[name].bundle.js'
-  },
-
-  // Optional and for development only. This provides the ability to
-  // map the built code back to the original source format when debugging.
-  devtool: 'eval-source-map',
-};
-
-const serviceWorkerConfig = {
-  ...rootConfig,
-  entry: './src/firebase-messaging-sw.js',
-  // TODO(jhuleatt): Remove this once https://github.com/firebase/firebase-js-sdk/issues/5314 is resolved
-  module: {
-    rules: [
-      {
-        test: /\.m?js/,
-        resolve: {
-          fullySpecified: false,
-        },
-      },
+  const appConfig = {
+    ...rootConfig,
+    entry: {
+      index: './src/index.js',
+      getstarted: './src/getstarted.js',
+      onboard: './src/onboard.js',
+      createproduct: './src/create-product.js',
+      merchantdetails: './src/merchant-details.js',
+      history: './src/history.js',
+      request: './src/request.js',
+      auth: './src/auth.js',
+      contact: './src/contact.js',
+      profile: './src/profile.js',
+    },
+    output: {
+      path: path.resolve(__dirname, 'public'),
+      filename: '[name].bundle.js',
+    },
+    plugins: [
+      new webpack.DefinePlugin({
+        __BUILD_MODE__: JSON.stringify(buildMode),
+        __USE_AUTH_EMULATOR__: JSON.stringify(isDevBuild),
+      }),
     ],
-  },
-  output: {
-    filename: 'firebase-messaging-sw.js',
-    path: path.resolve(__dirname, 'public'),
-  },
-};
+  };
 
-module.exports = [appConfig, serviceWorkerConfig];
+  const serviceWorkerConfig = {
+    ...rootConfig,
+    entry: './src/firebase-messaging-sw.js',
+    module: {
+      rules: [
+        {
+          test: /\.m?js/,
+          resolve: {
+            fullySpecified: false,
+          },
+        },
+      ],
+    },
+    output: {
+      filename: 'firebase-messaging-sw.js',
+      path: path.resolve(__dirname, 'public'),
+    },
+  };
+
+  return [appConfig, serviceWorkerConfig];
+};

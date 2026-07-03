@@ -10,7 +10,7 @@
 <body>
   <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
     <div class="container-fluid">
-      <a class="navbar-brand" href="index.html">Traveling Salesman</a>
+      <a class="navbar-brand" href="index.html">Traveling Salesman - User Profile</a>
       <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
         <span class="navbar-toggler-icon"></span>
       </button>
@@ -26,6 +26,9 @@
             <a class="nav-link active" aria-current="page" href="profile.html" id="profileNavLink">Profile</a>
           </li>
           <li class="nav-item">
+            <a class="nav-link" href="merchant-details.html">Merchant Details</a>
+          </li>
+          <li class="nav-item">
             <a class="nav-link" href="contact.html">Contact</a>
           </li>
         </ul>
@@ -35,20 +38,47 @@
 
   <main class="container py-5">
     <div class="row justify-content-center">
-      <div class="col-lg-10">
+      <div class="col-lg-8 col-xl-7">
         <div class="card shadow-sm">
           <div class="card-body">
-            <h1 class="h3 mb-3">User Profile</h1>
-            <p class="text-muted mb-4">This page displays information from the current Firebase auth user and the Firestore <code>users</code> collection.</p>
             <div id="loadingStatus" class="alert alert-info">Loading profile information...</div>
             <div id="signedOutState" class="alert alert-warning" style="display: none;">
               <p class="mb-2">You are not signed in.</p>
               <a href="auth.html" class="btn btn-primary">Sign In</a>
             </div>
             <div id="signedInState" style="display: none;">
-              <div id="userInfo" class="mb-4"></div>
-              <div id="firestoreUserInfo" class="mb-4"></div>
-              <button id="signOutBtn" class="btn btn-outline-secondary">Sign Out</button>
+              <div class="d-flex flex-column flex-sm-row align-items-sm-center gap-3 mb-4 pb-3 border-bottom">
+                <div id="profileAvatar" class="d-flex align-items-center justify-content-center rounded-circle bg-primary-subtle text-primary fw-bold" style="width:72px; height:72px; font-size:1.5rem;">
+                  U
+                </div>
+                <div>
+                  <h2 id="profileHeading" class="h5 mb-1">Signed In User</h2>
+                  <p id="profileSubheading" class="text-body-secondary mb-0">Your account details</p>
+                </div>
+              </div>
+
+              <div class="table-responsive mb-4">
+                <table class="table table-sm align-middle mb-0">
+                  <tbody id="userInfo"></tbody>
+                </table>
+              </div>
+
+              <div id="stripeAccountCard" class="card border-secondary-subtle bg-body-tertiary mb-4" style="display: none;">
+                <div class="card-body">
+                  <h3 class="h6 mb-3">Stripe Accounts</h3>
+                  <div id="stripeAccountLoading" class="text-body-secondary small mb-3">Loading Stripe account details...</div>
+                  <div id="stripeAccountEmpty" class="alert alert-light border mb-0" style="display:none;">No Stripe accounts found.</div>
+                  <div id="stripeAccountsList" class="row g-3" style="display:none;"></div>
+                </div>
+              </div>
+
+              <div class="d-flex justify-content-end mb-3">
+                <a href="merchant-details.html" class="btn btn-outline-primary">Open Merchant Details</a>
+              </div>
+
+              <div class="d-flex justify-content-end">
+                <button id="signOutBtn" class="btn btn-outline-secondary">Sign Out</button>
+              </div>
             </div>
           </div>
         </div>
@@ -56,7 +86,7 @@
     </div>
   </main>
 
-  <footer class="bg-dark text-white py-3 mt-5">
+  <footer class="bg-dark text-white py-3 mt-auto mb-0">
     <div class="container text-center">
       <p class="mb-0">&copy; 2026 Organic Systems LLC. All rights reserved.</p>
     </div>
