@@ -36,6 +36,11 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 0.75rem;
     }
+
+    #place-autocomplete-widget gmp-place-autocomplete {
+      width: 100%;
+      display: block;
+    }
   </style>
 
   <script async src="https://www.googletagmanager.com/gtag/js?id=G-GWDJ4TQSSY"></script>
@@ -95,8 +100,8 @@
             </div>
 
             <div class="col-md-8">
-              <label for="autocomplete-location" class="form-label">Add Stop with Google Maps Autocomplete</label>
-              <input id="autocomplete-location" type="text" class="form-control" placeholder="Type an address or place name">
+              <label class="form-label">Add Stop with Google PlaceAutocomplete</label>
+              <div id="place-autocomplete-widget"></div>
               <div class="form-text">Select from the Google suggestions to add it to the route list.</div>
             </div>
             <div class="col-md-4 d-flex align-items-end">

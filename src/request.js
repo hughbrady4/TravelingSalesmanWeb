@@ -1,10 +1,35 @@
+import {initializeApp} from "firebase/app";
+import {connectAuthEmulator, getAuth} from "firebase/auth";
+import {getFunctions, httpsCallable} from "firebase/functions";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
+  authDomain: "osweb-140a8.firebaseapp.com",
+  projectId: "osweb-140a8",
+  storageBucket: "osweb-140a8.firebasestorage.app",
+  messagingSenderId: "939475367267",
+  appId: "1:939475367267:web:ae83ef6f5b26ea525f4f56",
+  measurementId: "G-GWDJ4TQSSY",
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectAuthEmulator(auth, "http://127.0.0.1:9099");
+}
+const functions = getFunctions(app);
+const requestRideCallable = httpsCallable(functions, "requestRide");
+const currentPriceId = new URLSearchParams(window.location.search).get('priceId') || '';
+const currentAccountId = new URLSearchParams(window.location.search).get('accountId') || '';
+
 let routeStops = [];
 
 let dateTimeInput;
 let nowCheckbox;
 let routeList;
 let routeData;
-let locationInput;
+let placeAutocomplete;
+let Route;
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -94,30 +119,45 @@ function setupAutocomplete() {
     throw new Error('Google Maps Places library is unavailable.');
   }
 
-  const autocomplete = new google.maps.places.Autocomplete(locationInput, {
-    fields: ['formatted_address', 'geometry', 'name'],
-  });
 
-  autocomplete.addListener('place_changed', () => {
-    const place = autocomplete.getPlace();
-    if (!place?.geometry?.location) {
+  const autocompleteContainer = document.getElementById('place-autocomplete-widget');
+  if (!autocompleteContainer) {
+    throw new Error('Place autocomplete container is unavailable.');
+  }
+
+  placeAutocomplete = new google.maps.places.PlaceAutocompleteElement();
+  placeAutocomplete.placeholder = 'Type an address or place name';
+  placeAutocomplete.setAttribute('aria-label', 'Add stop with place autocomplete');
+  autocompleteContainer.replaceChildren(placeAutocomplete);
+
+  placeAutocomplete.addEventListener('gmp-select', async ({placePrediction}) => {
+    if (!placePrediction) {
       return;
     }
 
-    const lat = place.geometry.location.lat();
-    const lng = place.geometry.location.lng();
-    const label = place.name || 'Selected location';
-    const address = place.formatted_address || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+    const place = placePrediction.toPlace();
+    await place.fetchFields({fields: ['displayName', 'formattedAddress', 'location']});
+
+    if (!place.location) {
+      return;
+    }
+
+    const lat = place.location.lat();
+    const lng = place.location.lng();
+    const label = place.displayName || 'Selected location';
+    const address = place.formattedAddress || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
     addRouteStop({
-      source: 'autocomplete',
+      source: 'place-autocomplete',
       label,
       address,
       lat,
       lng,
     });
 
-    locationInput.value = '';
+    if ('value' in placeAutocomplete) {
+      placeAutocomplete.value = '';
+    }
   });
 }
 
@@ -161,11 +201,66 @@ function setupMyLocationButton() {
   });
 }
 
+function parseDurationToMillis(duration) {
+  if (typeof duration === 'number' && Number.isFinite(duration)) {
+    return duration;
+  }
+
+  if (typeof duration !== 'string') {
+    return null;
+  }
+
+  const seconds = Number(duration.replace(/s$/, ''));
+  if (!Number.isFinite(seconds)) {
+    return null;
+  }
+
+  return seconds * 1000;
+}
+
+async function computeRouteMetrics(stops) {
+  if (!Route || !Array.isArray(stops) || stops.length < 2) {
+    return null;
+  }
+
+  const request = {
+    origin: {
+      lat: stops[0].lat,
+      lng: stops[0].lng,
+    },
+    destination: {
+      lat: stops[stops.length - 1].lat,
+      lng: stops[stops.length - 1].lng,
+    },
+    travelMode: 'DRIVING',
+    fields: ['distanceMeters', 'durationMillis'],
+  };
+
+  const {routes} = await Route.computeRoutes(request);
+  const primaryRoute = Array.isArray(routes) ? routes[0] : null;
+  if (!primaryRoute) {
+    return null;
+  }
+
+  const distanceMeters = Number(primaryRoute.distanceMeters);
+  const durationMillis = parseDurationToMillis(primaryRoute.durationMillis) ??
+    parseDurationToMillis(primaryRoute.duration);
+
+  if (!Number.isFinite(distanceMeters) || !Number.isFinite(durationMillis)) {
+    return null;
+  }
+
+  return {
+    distanceMiles: distanceMeters * 0.000621371,
+    durationMinutes: durationMillis / 60000,
+  };
+}
+
 function setupFormSubmission() {
   const form = document.getElementById('ride-request-form');
   const summary = document.getElementById('submit-summary');
 
-  form.addEventListener('submit', (event) => {
+  form.addEventListener('submit', async (event) => {
     event.preventDefault();
 
     if (!form.checkValidity()) {
@@ -173,12 +268,64 @@ function setupFormSubmission() {
       return;
     }
 
+    if (routeStops.length < 1) {
+      alert('Please add at least one route stop before submitting.');
+      return;
+    }
+
+    const currentUser = auth.currentUser;
+    if (!currentUser) {
+      alert('Please sign in before requesting a ride.');
+      return;
+    }
+
+    const submitButton = form.querySelector('button[type="submit"]');
+    submitButton.disabled = true;
+    submitButton.textContent = 'Submitting...';
+
     const schedule = nowCheckbox.checked
       ? 'Now'
       : new Date(dateTimeInput.value).toLocaleString();
+    let routeSummary = '';
+    let routeMetrics = null;
 
-    summary.textContent = `Ride request ready: ${schedule} with ${routeStops.length} stop(s).`;
-    summary.classList.remove('d-none');
+    try {
+      routeMetrics = await computeRouteMetrics(routeStops);
+      if (routeMetrics) {
+        routeSummary = ` Estimated ${routeMetrics.distanceMiles.toFixed(1)} mi, ${routeMetrics.durationMinutes.toFixed(1)} min.`;
+      }
+    } catch (routeError) {
+      console.warn('Unable to compute route metrics with Maps Routes SDK:', routeError);
+    }
+
+    const ridePayload = {
+      rideNow: nowCheckbox.checked,
+      rideDateTime: nowCheckbox.checked ? null : dateTimeInput.value,
+      routeStops,
+      distancemiles: routeMetrics?.distanceMiles,
+      minutes: routeMetrics?.durationMinutes,
+      priceId: currentPriceId || undefined,
+      accountId: currentAccountId || undefined,
+    };
+
+    try {
+      const response = await requestRideCallable(ridePayload);
+      const requestId = response?.data?.requestId || 'unknown';
+      const checkoutUrl = response?.data?.checkoutUrl || '';
+      const detailUrl = `request-details.html?requestId=${encodeURIComponent(requestId)}`;
+      summary.innerHTML = `Ride request submitted (${requestId}): ${schedule} with ${routeStops.length} stop(s).${routeSummary} <a href="${detailUrl}" class="alert-link">View request details</a>.`;
+      summary.classList.remove('d-none');
+
+      if (checkoutUrl) {
+        window.location.href = checkoutUrl;
+      }
+    } catch (error) {
+      const message = error?.message || 'Unable to submit ride request.';
+      alert(message);
+    } finally {
+      submitButton.disabled = false;
+      submitButton.textContent = 'Submit Request';
+    }
   });
 }
 
@@ -187,13 +334,16 @@ async function init() {
   nowCheckbox = document.getElementById('ride-now');
   routeList = document.getElementById('route-list');
   routeData = document.getElementById('route-data');
-  locationInput = document.getElementById('autocomplete-location');
 
   setupDateTimeInput();
   setupMyLocationButton();
   setupFormSubmission();
 
-  await google.maps.importLibrary('places');
+  const [{Route: RoutesClass}] = await Promise.all([
+    google.maps.importLibrary('routes'),
+    google.maps.importLibrary('places'),
+  ]);
+  Route = RoutesClass;
   setupAutocomplete();
   renderRouteList();
 }

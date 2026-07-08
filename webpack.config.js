@@ -26,6 +26,7 @@ module.exports = (env = {}) => {
       merchantdetails: './src/merchant-details.js',
       history: './src/history.js',
       request: './src/request.js',
+      requestdetails: './src/request-details.js',
       auth: './src/auth.js',
       contact: './src/contact.js',
       profile: './src/profile.js',

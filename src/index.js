@@ -186,12 +186,38 @@ const parseGeoLocation = (value) => {
   return null;
 };
 
+const escapeHtml = (value) => String(value)
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#39;');
+
+const buildProductUrlWithParams = (baseUrl, accountId, priceId) => {
+  if (!baseUrl) {
+    return null;
+  }
+
+  try {
+    const url = new URL(baseUrl, window.location.origin);
+    url.searchParams.set('accountId', accountId);
+    if (priceId) {
+      url.searchParams.set('priceId', priceId);
+    }
+    return url.toString();
+  } catch (error) {
+    console.error('Invalid product URL for info window link:', error);
+    return null;
+  }
+};
+
 const getProductPosition = async (productData) => {
   const candidateFields = [
     productData.location,
     productData.geoLocation,
     productData.geo_code,
     productData.geoCode,
+    productData.geoCoordinates,
   ];
 
   for (const candidate of candidateFields) {
@@ -206,18 +232,18 @@ const getProductPosition = async (productData) => {
     return null;
   }
 
-  try {
-    const userSnap = await getDoc(doc(db, 'users', productUserId));
-    if (!userSnap.exists()) {
-      return null;
-    }
+  // try {
+  //   const userSnap = await getDoc(doc(db, 'users', productUserId));
+  //   if (!userSnap.exists()) {
+  //     return null;
+  //   }
 
-    const userLocation = userSnap.data()?.location;
-    return parseGeoLocation(userLocation);
-  } catch (error) {
-    console.error('Unable to load user location for product marker:', error);
-    return null;
-  }
+  //   const userLocation = userSnap.data()?.location;
+  //   return parseGeoLocation(userLocation);
+  // } catch (error) {
+  //   console.error('Unable to load user location for product marker:', error);
+  //   return null;
+  // }
 };
 
 const formatPriceLabel = (priceData) => {
@@ -330,7 +356,7 @@ const syncProductPriceMarkers = async () => {
       };
     }
 
-    const position = await getProductPosition(productData);
+    const position = productData.geoCoordinates || await getProductPosition(productData);
     if (productUserId && productUserId !== 'unknown') {
       userLocationCache.set(productUserId, position);
     }
@@ -377,14 +403,29 @@ const syncProductPriceMarkers = async () => {
         productPriceInfoWindow = new google.maps.InfoWindow();
       }
 
-      const safeProductName = String(productName).replace(/</g, '&lt;').replace(/>/g, '&gt;');
-      const safeDescription = String(productData.description || 'No description provided')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
+      const safeProductName = escapeHtml(productName);
+      const safeDescription = escapeHtml(productData.description || 'No description provided');
+      const productUrl = typeof productData.url === 'string' ? productData.url.trim() : '';
+      const accountId = typeof productData.accountId === 'string' ? productData.accountId.trim() : '';
       const pricesHtml = relatedPrices
         .slice(0, 4)
-        .map((priceData) => `<li>${formatPriceLabel(priceData)}</li>`)
+        .map((priceData) => {
+          const priceLabel = escapeHtml(formatPriceLabel(priceData));
+          const linkedUrl = buildProductUrlWithParams(productUrl, accountId, priceData.id);
+
+          if (!linkedUrl) {
+            return `<li>${priceLabel}</li>`;
+          }
+
+          return `<li><a href="${escapeHtml(linkedUrl)}" target="_blank" rel="noopener noreferrer">${priceLabel}</a></li>`;
+        })
         .join('');
+
+      const firstPriceId = relatedPrices[0]?.id;
+      const productLinkUrl = buildProductUrlWithParams(productUrl, accountId, firstPriceId);
+      const productLinkHtml = productLinkUrl
+        ? `<div style="margin-top:8px;"><a href="${escapeHtml(productLinkUrl)}" target="_blank" rel="noopener noreferrer">Open product link</a></div>`
+        : '';
 
       // Use vendor name from product document
       const accountDisplayName = productData.accountDisplayName || '';
@@ -405,6 +446,7 @@ const syncProductPriceMarkers = async () => {
         `<div style="font-size:12px;margin-top:4px;">${safeDescription}</div>`,
         '<div style="font-size:12px;margin-top:6px;">Active prices:</div>',
         `<ul style="margin:4px 0 0 16px;padding:0;">${pricesHtml || '<li>No price data</li>'}</ul>`,
+        productLinkHtml,
         '</div>',
       ].join(''));
 
@@ -802,7 +844,7 @@ async function init() {
     const mapDiv = document.getElementById("map");
     mMap = new Map(mapDiv, {
       fullscreenControl: false,
-      streetViewControl: true,
+      streetViewControl: false,
       zoom: 4,
       minZoom: 3,
       center: position,
@@ -814,8 +856,8 @@ async function init() {
     const myLocationControl = createMyLocationControl();
     mMap.controls[google.maps.ControlPosition.RIGHT_TOP].push(myLocationControl);
 
-    const placeSearchControl = createPlaceSearchControl();
-    mMap.controls[google.maps.ControlPosition.LEFT_TOP].push(placeSearchControl);
+    //const placeSearchControl = createPlaceSearchControl();
+    //mMap.controls[google.maps.ControlPosition.LEFT_TOP].push(placeSearchControl);
 
     if (pendingSavedLocation) {
       const location = pendingSavedLocation;

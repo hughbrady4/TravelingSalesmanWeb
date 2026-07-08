@@ -31,6 +31,7 @@ const messaging = getMessaging();
 
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const endpointSecret = defineSecret("STRIPE_ENDPOINT_SECRET");
+const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
 
 
 // Function to create a new connected account in Stripe.
@@ -285,6 +286,109 @@ export const createProduct = onCall(
       return {productId: product.id, priceId: priceData.id};
     });
 
+export const updateProduct = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const productId = request.data.productId;
+      if (!productId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe product ID.");
+      }
+
+      const accountId = request.data.accountId;
+      if (!accountId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe account ID.");
+      }
+
+      const updateData = {};
+      if (typeof request.data.name === "string") {
+        updateData.name = request.data.name;
+      }
+      if (typeof request.data.description === "string") {
+        updateData.description = request.data.description;
+      }
+      if (typeof request.data.url === "string") {
+        updateData.url = request.data.url;
+      }
+      if (typeof request.data.active === "boolean") {
+        updateData.active = request.data.active;
+      }
+
+
+      const metadataUpdate = {};
+      if (request.data.metadata && typeof request.data.metadata === "object" && !Array.isArray(request.data.metadata)) {
+        for (const [key, value] of Object.entries(request.data.metadata)) {
+          if (value !== undefined && value !== null) {
+            metadataUpdate[key] = String(value);
+          }
+        }
+      }
+
+      let geoCoordinates = null;
+      if (request.data.coordinates !== undefined) {
+        const lat = Number(request.data.coordinates?.lat);
+        const lng = Number(request.data.coordinates?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new HttpsError(
+              "invalid-argument",
+              "geoCoordinates must include numeric lat and lng values.",
+          );
+        }
+
+        geoCoordinates = {lat, lng};
+        metadataUpdate.geo_lat = String(lat);
+        metadataUpdate.geo_lng = String(lng);
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const existingProduct = await stripe.products.retrieve(productId, {
+        stripeAccount: accountId,
+      });
+
+      if (Object.keys(metadataUpdate).length > 0) {
+        updateData.metadata = {
+          ...(existingProduct.metadata || {}),
+          ...metadataUpdate,
+        };
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Provide at least one updatable field: name, description, url, active, metadata, or geoCoordinates.",
+        );
+      }
+
+      let accountDisplayName = "Unknown vendor";
+      try {
+        const account = await stripe.v2.core.accounts.retrieve(accountId);
+        accountDisplayName = account.display_name || "Unknown vendor";
+      } catch (error) {
+        log(`Unable to fetch account display name for ${accountId}:`, error.message);
+      }
+
+      const updatedProduct = await stripe.products.update(productId, updateData, {
+        stripeAccount: accountId,
+      });
+
+      updatedProduct.accountId = accountId;
+      updatedProduct.accountDisplayName = accountDisplayName;
+
+      const userId = updatedProduct.metadata?.tsp_uid;
+      if (userId) {
+        updatedProduct.userId = userId;
+      }
+
+      if (geoCoordinates) {
+        updatedProduct.geoCoordinates = geoCoordinates;
+      }
+
+      await db.collection("stripeProducts").doc(updatedProduct.id).set(updatedProduct, {merge: true});
+
+      return {product: updatedProduct};
+    });
+
 export const listProducts = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
       const accountId = request.data.accountId;
@@ -429,6 +533,284 @@ export const getPaymentLink = onCall(async (request) => {
 
   return {paymentLink: paymentLink.url};
 });
+
+// Callable function to create a ride request from form payload.
+export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "You must be signed in to request a ride.");
+  }
+
+  const rideNow = request.data.rideNow === true;
+  const rideDateTime = request.data.rideDateTime;
+  const routeStops = Array.isArray(request.data.routeStops) ? request.data.routeStops : [];
+  const distanceMiles = Number(request.data.distancemiles);
+  const minutes = Number(request.data.minutes);
+  const accountId = typeof request.data.accountId === "string" ? request.data.accountId.trim() : "";
+  const priceId = typeof request.data.priceId === "string" ? request.data.priceId.trim() : "";
+
+  if (!rideNow && !rideDateTime) {
+    throw new HttpsError(
+        "invalid-argument",
+        "The function must be called with rideDateTime or rideNow=true.",
+    );
+  }
+
+  if (routeStops.length < 1) {
+    throw new HttpsError(
+        "invalid-argument",
+        "The function must be called with at least one route stop.",
+    );
+  }
+
+  const normalizedStops = routeStops.map((stop) => {
+    const label = String(stop?.label || "Stop");
+    const address = String(stop?.address || "Unknown address");
+    const lat = Number(stop?.lat);
+    const lng = Number(stop?.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Each route stop must include numeric lat/lng coordinates.",
+      );
+    }
+
+    return {
+      source: String(stop?.source || "autocomplete"),
+      label,
+      address,
+      lat,
+      lng,
+    };
+  });
+
+  const pickupStop = normalizedStops[0];
+  const dropoffStop = normalizedStops[normalizedStops.length - 1];
+
+  const createdAt = new Date();
+  const rideRequest = {
+    user: request.auth.uid,
+    createdTS: createdAt,
+    updatedTS: createdAt,
+    schedule: {
+      rideNow,
+      rideDateTime: rideNow ? null : rideDateTime,
+    },
+    routeStops: normalizedStops,
+    accountId: accountId || null,
+    pickupAddress: pickupStop.address,
+    dropoffAddress: dropoffStop.address,
+    A: {
+      address: pickupStop.address,
+      location: {
+        lat: pickupStop.lat,
+        lng: pickupStop.lng,
+      },
+    },
+    B: {
+      address: dropoffStop.address,
+      location: {
+        lat: dropoffStop.lat,
+        lng: dropoffStop.lng,
+      },
+    },
+    status: "requested",
+  };
+
+  if (Number.isFinite(distanceMiles)) {
+    rideRequest.distancemiles = Math.round(distanceMiles);
+  }
+
+  if (Number.isFinite(minutes)) {
+    rideRequest.minutes = minutes;
+  }
+
+  const requestRef = await db.collection("requests").add(rideRequest);
+  log(`Ride request created for user ${request.auth.uid}: ${requestRef.id}`);
+
+  let checkoutUrl = null;
+  if (accountId && priceId) {
+    const secretKey = stripeSecret.value();
+    const stripe = new Stripe(secretKey);
+
+    const price = await stripe.prices.retrieve(priceId, {
+      stripeAccount: accountId,
+    });
+
+    const priceType = price.type;
+    const mode = priceType === "recurring" ? "subscription" : "payment";
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price: priceId,
+          quantity: Math.round(distanceMiles),
+        },
+      ],
+      phone_number_collection: {
+        enabled: true,
+      },
+      mode: mode,
+      success_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=true`,
+      cancel_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=false`,
+    }, {
+      stripeAccount: accountId,
+    });
+
+    checkoutUrl = session.url || null;
+
+    await requestRef.set({checkoutUrl, checkoutSessionId: session.id}, {merge: true});
+  }
+
+  return {
+    requestId: requestRef.id,
+    status: rideRequest.status,
+    checkoutUrl,
+  };
+});
+
+export const computeRouteEstimate = onCall(
+    {secrets: ["GOOGLE_ROUTES_API_KEY"]},
+    async (request) => {
+      const toLatLng = (stop, fieldName) => {
+        const lat = Number(stop?.lat);
+        const lng = Number(stop?.lng);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new HttpsError(
+              "invalid-argument",
+              `${fieldName} must include numeric lat and lng values.`,
+          );
+        }
+
+        return {
+          latitude: lat,
+          longitude: lng,
+        };
+      };
+
+      const toWaypoint = (stop, fieldName) => ({
+        location: {
+          latLng: toLatLng(stop, fieldName),
+        },
+      });
+
+      const normalizeScheduleInput = (inputSchedule, fallbackRideNow, fallbackRideDateTime) => {
+        const schedule = (inputSchedule && typeof inputSchedule === "object") ? inputSchedule : {};
+        const rideNow = schedule.rideNow === true || fallbackRideNow === true;
+        const rideDateTime = typeof schedule.rideDateTime === "string" ?
+          schedule.rideDateTime :
+          (typeof fallbackRideDateTime === "string" ? fallbackRideDateTime : null);
+
+        if (!rideNow && !rideDateTime) {
+          throw new HttpsError(
+              "invalid-argument",
+              "schedule must include rideNow=true or a valid rideDateTime.",
+          );
+        }
+
+        if (rideNow) {
+          return {rideNow: true, departureTime: new Date().toISOString()};
+        }
+
+        const parsedDate = new Date(rideDateTime);
+        if (Number.isNaN(parsedDate.getTime())) {
+          throw new HttpsError(
+              "invalid-argument",
+              "schedule.rideDateTime must be a valid date/time string.",
+          );
+        }
+
+        return {rideNow: false, departureTime: parsedDate.toISOString()};
+      };
+
+      const buildComputeRoutesBody = (routeData, departureTime) => {
+        const route = (routeData && typeof routeData === "object") ? routeData : {};
+        const routeStops = Array.isArray(route.routeStops) ? route.routeStops : [];
+        const travelMode = typeof route.travelMode === "string" ? route.travelMode : "DRIVE";
+        const routingPreference = typeof route.routingPreference === "string" ?
+          route.routingPreference :
+          "TRAFFIC_AWARE";
+
+        let origin = route.origin;
+        let destination = route.destination;
+        let intermediates = Array.isArray(route.intermediates) ? route.intermediates : [];
+
+        if ((!origin || !destination) && routeStops.length >= 2) {
+          origin = routeStops[0];
+          destination = routeStops[routeStops.length - 1];
+          intermediates = routeStops.slice(1, -1);
+        }
+
+        if (!origin || !destination) {
+          throw new HttpsError(
+              "invalid-argument",
+              "route must include origin and destination, or routeStops with at least two stops.",
+          );
+        }
+
+        return {
+          origin: toWaypoint(origin, "route.origin"),
+          destination: toWaypoint(destination, "route.destination"),
+          intermediates: intermediates.map((stop, index) => toWaypoint(stop, `route.intermediates[${index}]`)),
+          travelMode,
+          routingPreference,
+          computeAlternativeRoutes: route.computeAlternativeRoutes === true,
+          languageCode: typeof route.languageCode === "string" ? route.languageCode : "en-US",
+          units: typeof route.units === "string" ? route.units : "IMPERIAL",
+          departureTime,
+        };
+      };
+
+
+      const scheduleInput = request.data.schedule;
+      const normalizedSchedule = normalizeScheduleInput(
+          scheduleInput,
+          request.data.rideNow,
+          request.data.rideDateTime,
+      );
+
+      const routeInput = request.data.route || {routeStops: request.data.routeStops};
+      const computeRoutesBody = buildComputeRoutesBody(routeInput, normalizedSchedule.departureTime);
+
+      const apiKey = googleRoutesApiKey.value();
+      const fieldMask = typeof request.data.fieldMask === "string" && request.data.fieldMask.trim() ?
+        request.data.fieldMask.trim() :
+        "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs";
+
+      const apiResponse = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": fieldMask,
+        },
+        body: JSON.stringify(computeRoutesBody),
+      });
+
+      const responseText = await apiResponse.text();
+      const responseData = responseText ? JSON.parse(responseText) : {};
+
+      if (!apiResponse.ok) {
+        const message = responseData?.error?.message ||
+          `Google Routes API request failed with status ${apiResponse.status}.`;
+
+        throw new HttpsError("internal", message, {
+          status: apiResponse.status,
+          details: responseData?.error || null,
+        });
+      }
+
+      const routes = Array.isArray(responseData.routes) ? responseData.routes : [];
+
+      return {
+        schedule: normalizedSchedule,
+        request: computeRoutesBody,
+        routes,
+        raw: responseData,
+      };
+    },
+);
 
 export const createRequest =
   onDocumentCreated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
