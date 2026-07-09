@@ -116,29 +116,54 @@ export const listConnectedAccounts = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
-      const accounts = await stripe.v2.core.accounts.list({
+      const appliedConfigurations = request.data?.appliedConfigurations ?? request.data?.applied_configurations;
+      const listParams = {
         limit: 20,
-      });
+      };
+
+      if (appliedConfigurations !== undefined) {
+        listParams.applied_configurations = appliedConfigurations;
+      }
+
+      const accounts = await stripe.v2.core.accounts.list(listParams);
 
       // Store account information in Firestore
       for (const account of accounts.data) {
-        let uid;
+        const accountData = account;
+
         if (!account.metadata || !account.metadata.tsp_uid) {
-          const userRecord = await getAuth().getUserByEmail(account.contact_email);
-          uid = userRecord.uid;
+          try {
+            if (account.contact_email) {
+              const userRecord = await getAuth().getUserByEmail(account.contact_email);
+              accountData.userId = userRecord.uid;
+            } else {
+              warn("Skipping getUserByEmail: missing contact_email", {accountId: account.id});
+            }
+          } catch (error) {
+            warn("Failed getUserByEmail in listConnectedAccounts", {
+              accountId: account.id,
+              contactEmail: account.contact_email || "unknown",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         } else {
-          uid = account.metadata.tsp_uid;
+          accountData.userId = account.metadata.tsp_uid;
         }
 
-        const accountData = {
-          userId: uid,
-          companyName: account.display_name || "unknown",
-          email: account.contact_email || "unknown",
-          createdAt: new Date(),
-          status: "pending",
-        };
+        const hasMerchantConfiguration =
+          Array.isArray(account.applied_configurations) ?
+            account.applied_configurations.includes("merchant") :
+            account.applied_configurations?.merchant === true;
 
         await db.collection("stripeAccounts").doc(account.id).set(accountData, {merge: true});
+
+        if (hasMerchantConfiguration) {
+          const merchantData = {
+            ...accountData,
+          };
+
+          await db.collection("merchants").doc(account.id).set(merchantData, {merge: true});
+        }
       }
 
       return {accounts: accounts.data};
@@ -449,9 +474,9 @@ export const listProducts = onCall(
 export const createCheckoutSession = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]},
     async (request) => {
-      const priceId = request.data.priceId;
-      if (!priceId) {
-        throw new HttpsError("invalid-argument", "The function must be called with a Stripe price ID.");
+      const productId = request.data.productId;
+      if (!productId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe product ID.");
       }
       const accountId = request.data.accountId;
       if (!accountId) {
@@ -461,20 +486,21 @@ export const createCheckoutSession = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
-      const price = await stripe.prices.retrieve(priceId, {
-        stripeAccount: accountId,
+      const prices = await stripe.prices.search({
+        query: `active:'true' AND product:'${productId}'`,
       });
 
-      const priceType = price.type;
-      const mode = priceType === "recurring" ? "subscription" : "payment";
-
+      let mode = "payment";
+      const lineItems = [];
+      for (const price of prices.data) {
+        mode = price.type === "recurring" ? "subscription" : "payment";
+        lineItems.push({
+          price: price.id,
+          quantity: 1,
+        });
+      }
       const session = await stripe.checkout.sessions.create({
-        line_items: [
-          {
-            price: priceId,
-            quantity: 1,
-          },
-        ],
+        line_items: lineItems,
         mode: mode,
         success_url: `${process.env.DOMAIN}/paid?session_id={CHECKOUT_SESSION_ID}`,
         cancel_url: `${process.env.DOMAIN}/cancelled`,

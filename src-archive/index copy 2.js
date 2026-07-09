@@ -1,0 +1,1070 @@
+/**
+ * Import function triggers from their respective submodules:
+ *
+ * const {onCall} = require("firebase-functions/v2/https");
+ * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
+ *
+ * See a full list of supported triggers at https://firebase.google.com/docs/functions
+ */
+import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
+import {getAuth} from "firebase-admin/auth";
+import {log, warn} from "firebase-functions/logger";
+
+import {initializeApp, applicationDefault} from "firebase-admin/app";
+
+import {getMessaging} from "firebase-admin/messaging";
+import {getFirestore} from "firebase-admin/firestore";
+import {Stripe} from "stripe";
+import {defineSecret} from "firebase-functions/params";
+
+import {onCall, HttpsError, onRequest} from "firebase-functions/https";
+import {logger} from "firebase-functions";
+
+const app = initializeApp( {
+  credential: applicationDefault(),
+  projectId: "osweb-140a8",
+});
+
+const db = getFirestore(app, "travelingsalesman");
+
+const messaging = getMessaging();
+
+const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
+const endpointSecret = defineSecret("STRIPE_ENDPOINT_SECRET");
+const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
+
+
+// Function to create a new connected account in Stripe.
+export const createConnectedAccount = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const companyName = request.data.companyName;
+      if (!companyName) {
+        throw new HttpsError("invalid-argument", "The function must be called with a company name.");
+      }
+
+      const email = request.data.email;
+      if (!email) {
+        throw new HttpsError("invalid-argument", "The function must be called with an email.");
+      }
+
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      // Create a Connect account with the specified controller properties
+      const account = await stripe.v2.core.accounts.create({
+        display_name: companyName,
+        contact_email: email,
+        dashboard: "full",
+        defaults: {
+          responsibilities: {
+            fees_collector: "stripe",
+            losses_collector: "stripe",
+          },
+        },
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+          geo_location: request.data.geoLocation || "unknown",
+          geo_code: request.data.geoCode || "unknown",
+        },
+        identity: {
+          country: "US",
+          entity_type: "company",
+          business_details: {
+            registered_name: companyName,
+          },
+        },
+        configuration: {
+          merchant: {
+            capabilities: {
+              card_payments: {requested: true},
+            },
+          },
+          customer: {
+            capabilities: {
+              automatic_indirect_tax: {requested: true},
+            },
+          },
+        },
+        include: [
+          "configuration.merchant",
+          "configuration.customer",
+          "identity",
+          "defaults",
+        ],
+      });
+
+      // Store account information in Firestore keyed by Stripe account ID
+      const userId = request.auth.uid;
+      await db.collection("stripeAccounts").doc(account.id).set({
+        userId,
+        companyName: companyName,
+        email: email,
+        createdAt: new Date(),
+        status: "pending",
+      }, {merge: true});
+
+      log(`Stripe account created for user ${userId}: ${account.id}`);
+
+      return {accountId: account.id};
+    });
+
+export const listConnectedAccounts = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const appliedConfigurations = request.data?.appliedConfigurations ?? request.data?.applied_configurations;
+      const listParams = {
+        limit: 20,
+      };
+
+      if (appliedConfigurations !== undefined) {
+        listParams.applied_configurations = appliedConfigurations;
+      }
+
+      const accounts = await stripe.v2.core.accounts.list(listParams);
+
+      // Store account information in Firestore
+      for (const account of accounts.data) {
+        const accountData = {
+          companyName: account.display_name || null,
+          email: account.contact_email || null,
+          phone: account.contact_phone || null,
+          cardPaymentsEnabled: account.capabilities?.card_payments?.status === "active",
+          payoutsEnabled: account.capabilities?.stripe_balance?.payouts?.status === "active",
+          applied_configurations: account.applied_configurations || null,
+          createdAt: account.created || null,
+          closed: account.closed || null,
+          status: "pending",
+        };
+
+        if (!account.metadata || !account.metadata.tsp_uid) {
+          try {
+            if (account.contact_email) {
+              const userRecord = await getAuth().getUserByEmail(account.contact_email);
+              accountData.userId = userRecord.uid;
+            } else {
+              warn("Skipping getUserByEmail: missing contact_email", {accountId: account.id});
+            }
+          } catch (error) {
+            warn("Failed getUserByEmail in listConnectedAccounts", {
+              accountId: account.id,
+              contactEmail: account.contact_email || "unknown",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } else {
+          accountData.userId = account.metadata.tsp_uid;
+        }
+
+        const hasMerchantConfiguration =
+          Array.isArray(account.applied_configurations) ?
+            account.applied_configurations.includes("merchant") :
+            account.applied_configurations?.merchant === true;
+
+        await db.collection("stripeAccounts").doc(account.id).set(accountData, {merge: true});
+
+        if (hasMerchantConfiguration) {
+          const merchantData = {
+            ...accountData,
+          };
+
+          await db.collection("merchants").doc(account.id).set(merchantData, {merge: true});
+        }
+      }
+
+      return {accounts: accounts.data};
+    });
+
+export const createAccountLink = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const accountId = request.data.accountId;
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const accountLink = await stripe.v2.core.accountLinks.create({
+        account: accountId,
+        use_case: {
+          type: "account_onboarding",
+          account_onboarding: {
+            configurations: ["merchant", "customer"],
+            refresh_url: "https://travelingsalesman.web.app",
+            return_url: `https://travelingsalesman.web.app`,
+          },
+        },
+      });
+
+      return {url: accountLink.url};
+    });
+
+export const getAccountStatus = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const accountId = request.data.accountId;
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const account = await stripe.v2.core.accounts.retrieve(accountId, {
+        include: ["requirements", "configuration.merchant"],
+      });
+
+      const payoutsEnabled = account.configuration?.merchant?.capabilities?.stripe_balance?.payouts?.status === "active";
+      const chargesEnabled = account.configuration?.merchant?.capabilities?.card_payments?.status === "active";
+
+      // No pending requirments
+      const summaryStatus = account.requirements?.summary?.minimum_deadline?.status;
+      const detailsSubmitted = !summaryStatus || summaryStatus === "eventually_due";
+
+      const resultData = {
+        payoutsEnabled: payoutsEnabled,
+        chargesEnabled: chargesEnabled,
+        detailsSubmitted: detailsSubmitted,
+        // summaryStatus: summaryStatus,
+      };
+      // Persist account status to Firestore account collection
+      await db.collection("stripeAccounts").doc(account.id).set(resultData, {merge: true});
+
+      return resultData;
+    });
+
+export const createProduct = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const name = request.data.name;
+      if (!name) {
+        throw new HttpsError("invalid-argument", "The function must be called with a product name.");
+      }
+      const description = request.data.description;
+      if (!description) {
+        throw new HttpsError("invalid-argument", "The function must be called with a product description.");
+      }
+      const price = request.data.price;
+      if (!price) {
+        throw new HttpsError("invalid-argument", "The function must be called with a product price.");
+      }
+      const currency = request.data.currency || "usd";
+      const recurring = request.data.recurring === true;
+      const recurringInterval = request.data.recurringInterval || "month";
+      const allowedIntervals = new Set(["day", "week", "month", "year"]);
+      if (recurring && !allowedIntervals.has(recurringInterval)) {
+        throw new HttpsError("invalid-argument", "Invalid recurring interval. Allowed values: day, week, month, year.");
+      }
+      const accountId = request.data.accountId;
+      if (!accountId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe account ID.");
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      // Fetch the Stripe account to get display name
+      const account = await stripe.v2.core.accounts.retrieve(accountId);
+      const accountDisplayName = account.display_name || "Unknown vendor";
+
+      const product = await stripe.products.create({
+        name: name,
+        description: description,
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+        },
+      }, {
+        stripeAccount: accountId,
+      });
+
+      if (accountId) {
+        product.accountId = accountId;
+      }
+
+      if (accountDisplayName) {
+        product.accountDisplayName = accountDisplayName;
+      }
+
+      const userId = request.auth.uid;
+      if (userId) {
+        product.userId = userId;
+      }
+
+      await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
+
+      const priceCreateData = {
+        product: product.id,
+        unit_amount: Math.round(price * 100), // price in cents
+        currency: currency,
+        metadata: {
+          tsp_uid: request.auth.uid || "unknown",
+        },
+      };
+
+      if (recurring) {
+        priceCreateData.recurring = {
+          interval: recurringInterval,
+        };
+      }
+
+      const priceData = await stripe.prices.create(priceCreateData, {
+        stripeAccount: accountId,
+      });
+
+      if (userId) {
+        priceData.userId = userId;
+      }
+
+      await db.collection("stripePrices").doc(priceData.id).set(priceData, {merge: true});
+
+
+      return {productId: product.id, priceId: priceData.id};
+    });
+
+export const updateProduct = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const productId = request.data.productId;
+      if (!productId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe product ID.");
+      }
+
+      const accountId = request.data.accountId;
+      if (!accountId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe account ID.");
+      }
+
+      const updateData = {};
+      if (typeof request.data.name === "string") {
+        updateData.name = request.data.name;
+      }
+      if (typeof request.data.description === "string") {
+        updateData.description = request.data.description;
+      }
+      if (typeof request.data.url === "string") {
+        updateData.url = request.data.url;
+      }
+      if (typeof request.data.active === "boolean") {
+        updateData.active = request.data.active;
+      }
+
+
+      const metadataUpdate = {};
+      if (request.data.metadata && typeof request.data.metadata === "object" && !Array.isArray(request.data.metadata)) {
+        for (const [key, value] of Object.entries(request.data.metadata)) {
+          if (value !== undefined && value !== null) {
+            metadataUpdate[key] = String(value);
+          }
+        }
+      }
+
+      let geoCoordinates = null;
+      if (request.data.coordinates !== undefined) {
+        const lat = Number(request.data.coordinates?.lat);
+        const lng = Number(request.data.coordinates?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new HttpsError(
+              "invalid-argument",
+              "geoCoordinates must include numeric lat and lng values.",
+          );
+        }
+
+        geoCoordinates = {lat, lng};
+        metadataUpdate.geo_lat = String(lat);
+        metadataUpdate.geo_lng = String(lng);
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const existingProduct = await stripe.products.retrieve(productId, {
+        stripeAccount: accountId,
+      });
+
+      if (Object.keys(metadataUpdate).length > 0) {
+        updateData.metadata = {
+          ...(existingProduct.metadata || {}),
+          ...metadataUpdate,
+        };
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        throw new HttpsError(
+            "invalid-argument",
+            "Provide at least one updatable field: name, description, url, active, metadata, or geoCoordinates.",
+        );
+      }
+
+      let accountDisplayName = "Unknown vendor";
+      try {
+        const account = await stripe.v2.core.accounts.retrieve(accountId);
+        accountDisplayName = account.display_name || "Unknown vendor";
+      } catch (error) {
+        log(`Unable to fetch account display name for ${accountId}:`, error.message);
+      }
+
+      const updatedProduct = await stripe.products.update(productId, updateData, {
+        stripeAccount: accountId,
+      });
+
+      updatedProduct.accountId = accountId;
+      updatedProduct.accountDisplayName = accountDisplayName;
+
+      const userId = updatedProduct.metadata?.tsp_uid;
+      if (userId) {
+        updatedProduct.userId = userId;
+      }
+
+      if (geoCoordinates) {
+        updatedProduct.geoCoordinates = geoCoordinates;
+      }
+
+      await db.collection("stripeProducts").doc(updatedProduct.id).set(updatedProduct, {merge: true});
+
+      return {product: updatedProduct};
+    });
+
+export const listProducts = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
+      const accountId = request.data.accountId;
+      const options = {};
+      if (accountId) {
+        options.stripeAccount = accountId;
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      // Fetch account display name once if accountId is provided
+      let accountDisplayName = "Unknown vendor";
+      if (accountId) {
+        try {
+          const account = await stripe.v2.core.accounts.retrieve(accountId);
+          accountDisplayName = account.display_name || "Unknown vendor";
+        } catch (error) {
+          log(`Unable to fetch account display name for ${accountId}:`, error.message);
+        }
+      }
+
+      const products = await stripe.products.list({
+        active: true,
+        limit: 100,
+      }, options);
+
+      for (const product of products.data) {
+        if (accountId) {
+          product.accountId = accountId;
+        }
+        if (accountDisplayName) {
+          product.accountDisplayName = accountDisplayName;
+        }
+        const userId = product.metadata?.tsp_uid || "unknown";
+        if (userId && userId !== "unknown") {
+          product.userId = userId;
+        }
+        await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
+      }
+
+      const prices = await stripe.prices.list({
+        active: true,
+        limit: 100,
+      }, options);
+
+      for (const price of prices.data) {
+        const userId = price.metadata?.tsp_uid || "unknown";
+        if (userId && userId !== "unknown") {
+          price.userId = userId;
+        }
+        await db.collection("stripePrices").doc(price.id).set(price, {merge: true});
+      }
+
+      return {products: products.data, prices: prices.data};
+    });
+
+export const createCheckoutSession = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const productId = request.data.productId;
+      if (!productId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe product ID.");
+      }
+      const accountId = request.data.accountId;
+      if (!accountId) {
+        throw new HttpsError("invalid-argument", "The function must be called with a Stripe account ID.");
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const prices = await stripe.prices.search({
+        query: `active:'true' AND product:'${productId}'`,
+      });
+
+      let mode = "payment";
+      const lineItems = [];
+      for (const price of prices.data) {
+        mode = price.type === "recurring" ? "subscription" : "payment";
+        lineItems.push({
+          price: price.id,
+          quantity: 1,
+        });
+      }
+      const session = await stripe.checkout.sessions.create({
+        line_items: lineItems,
+        mode: mode,
+        success_url: `${process.env.DOMAIN}/paid?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${process.env.DOMAIN}/cancelled`,
+      }, {
+        stripeAccount: accountId,
+      });
+
+      return {sessionId: session.id, url: session.url};
+    });
+
+// Callable function to generate a Stripe payment link for a given request ID.
+export const getPaymentLink = onCall(async (request) => {
+  const requestId = request.data.id;
+  const price = request.data.price;
+
+  if (!requestId) {
+    throw new HttpsError("invalid-argument", "The function must be called with a requestId.");
+  }
+
+  if (!price) {
+    throw new HttpsError("invalid-argument", "The function must be called with a price.");
+  }
+
+  const requestDoc = await db.collection("requests").doc(requestId).get();
+
+  if (!requestDoc.exists) {
+    throw new HttpsError("not-found", `No request found with ID: ${requestId}`);
+  }
+
+  const secretKey = stripeSecret.value();
+
+  const stripe =
+    new Stripe(secretKey, {
+      apiVersion: "2022-11-15",
+    });
+
+  const paymentLink = await stripe.paymentLinks.create({line_items: [
+    {
+      price_data: {
+        currency: "usd",
+        product_data: {
+          name: `Ride Request`,
+          description: `Pickup: ${requestDoc.data().pickupAddress || "unknown"}\n, 
+            Dropoff: ${requestDoc.data().dropoffAddress || "unknown"}`,
+        },
+        unit_amount: Math.round(price * 100), // price in cents
+      },
+      quantity: 1,
+    },
+  ],
+  });
+
+  logger.info(`Payment link created for request ${requestId}: ${paymentLink.url}`);
+
+  await requestDoc.ref.set({price: price, paymentLink: paymentLink.url}, {merge: true});
+
+  return {paymentLink: paymentLink.url};
+});
+
+// Callable function to create a ride request from form payload.
+export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "You must be signed in to request a ride.");
+  }
+
+  const rideNow = request.data.rideNow === true;
+  const rideDateTime = request.data.rideDateTime;
+  const routeStops = Array.isArray(request.data.routeStops) ? request.data.routeStops : [];
+  const distanceMiles = Number(request.data.distancemiles);
+  const minutes = Number(request.data.minutes);
+  const accountId = typeof request.data.accountId === "string" ? request.data.accountId.trim() : "";
+  const priceId = typeof request.data.priceId === "string" ? request.data.priceId.trim() : "";
+
+  if (!rideNow && !rideDateTime) {
+    throw new HttpsError(
+        "invalid-argument",
+        "The function must be called with rideDateTime or rideNow=true.",
+    );
+  }
+
+  if (routeStops.length < 1) {
+    throw new HttpsError(
+        "invalid-argument",
+        "The function must be called with at least one route stop.",
+    );
+  }
+
+  const normalizedStops = routeStops.map((stop) => {
+    const label = String(stop?.label || "Stop");
+    const address = String(stop?.address || "Unknown address");
+    const lat = Number(stop?.lat);
+    const lng = Number(stop?.lng);
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      throw new HttpsError(
+          "invalid-argument",
+          "Each route stop must include numeric lat/lng coordinates.",
+      );
+    }
+
+    return {
+      source: String(stop?.source || "autocomplete"),
+      label,
+      address,
+      lat,
+      lng,
+    };
+  });
+
+  const pickupStop = normalizedStops[0];
+  const dropoffStop = normalizedStops[normalizedStops.length - 1];
+
+  const createdAt = new Date();
+  const rideRequest = {
+    user: request.auth.uid,
+    createdTS: createdAt,
+    updatedTS: createdAt,
+    schedule: {
+      rideNow,
+      rideDateTime: rideNow ? null : rideDateTime,
+    },
+    routeStops: normalizedStops,
+    accountId: accountId || null,
+    pickupAddress: pickupStop.address,
+    dropoffAddress: dropoffStop.address,
+    A: {
+      address: pickupStop.address,
+      location: {
+        lat: pickupStop.lat,
+        lng: pickupStop.lng,
+      },
+    },
+    B: {
+      address: dropoffStop.address,
+      location: {
+        lat: dropoffStop.lat,
+        lng: dropoffStop.lng,
+      },
+    },
+    status: "requested",
+  };
+
+  if (Number.isFinite(distanceMiles)) {
+    rideRequest.distancemiles = Math.round(distanceMiles);
+  }
+
+  if (Number.isFinite(minutes)) {
+    rideRequest.minutes = minutes;
+  }
+
+  const requestRef = await db.collection("requests").add(rideRequest);
+  log(`Ride request created for user ${request.auth.uid}: ${requestRef.id}`);
+
+  let checkoutUrl = null;
+  if (accountId && priceId) {
+    const secretKey = stripeSecret.value();
+    const stripe = new Stripe(secretKey);
+
+    const price = await stripe.prices.retrieve(priceId, {
+      stripeAccount: accountId,
+    });
+
+    const priceType = price.type;
+    const mode = priceType === "recurring" ? "subscription" : "payment";
+
+    const session = await stripe.checkout.sessions.create({
+      line_items: [
+        {
+          price: priceId,
+          quantity: Math.round(distanceMiles),
+        },
+      ],
+      phone_number_collection: {
+        enabled: true,
+      },
+      mode: mode,
+      success_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=true`,
+      cancel_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=false`,
+    }, {
+      stripeAccount: accountId,
+    });
+
+    checkoutUrl = session.url || null;
+
+    await requestRef.set({checkoutUrl, checkoutSessionId: session.id}, {merge: true});
+  }
+
+  return {
+    requestId: requestRef.id,
+    status: rideRequest.status,
+    checkoutUrl,
+  };
+});
+
+export const computeRouteEstimate = onCall(
+    {secrets: ["GOOGLE_ROUTES_API_KEY"]},
+    async (request) => {
+      const toLatLng = (stop, fieldName) => {
+        const lat = Number(stop?.lat);
+        const lng = Number(stop?.lng);
+
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+          throw new HttpsError(
+              "invalid-argument",
+              `${fieldName} must include numeric lat and lng values.`,
+          );
+        }
+
+        return {
+          latitude: lat,
+          longitude: lng,
+        };
+      };
+
+      const toWaypoint = (stop, fieldName) => ({
+        location: {
+          latLng: toLatLng(stop, fieldName),
+        },
+      });
+
+      const normalizeScheduleInput = (inputSchedule, fallbackRideNow, fallbackRideDateTime) => {
+        const schedule = (inputSchedule && typeof inputSchedule === "object") ? inputSchedule : {};
+        const rideNow = schedule.rideNow === true || fallbackRideNow === true;
+        const rideDateTime = typeof schedule.rideDateTime === "string" ?
+          schedule.rideDateTime :
+          (typeof fallbackRideDateTime === "string" ? fallbackRideDateTime : null);
+
+        if (!rideNow && !rideDateTime) {
+          throw new HttpsError(
+              "invalid-argument",
+              "schedule must include rideNow=true or a valid rideDateTime.",
+          );
+        }
+
+        if (rideNow) {
+          return {rideNow: true, departureTime: new Date().toISOString()};
+        }
+
+        const parsedDate = new Date(rideDateTime);
+        if (Number.isNaN(parsedDate.getTime())) {
+          throw new HttpsError(
+              "invalid-argument",
+              "schedule.rideDateTime must be a valid date/time string.",
+          );
+        }
+
+        return {rideNow: false, departureTime: parsedDate.toISOString()};
+      };
+
+      const buildComputeRoutesBody = (routeData, departureTime) => {
+        const route = (routeData && typeof routeData === "object") ? routeData : {};
+        const routeStops = Array.isArray(route.routeStops) ? route.routeStops : [];
+        const travelMode = typeof route.travelMode === "string" ? route.travelMode : "DRIVE";
+        const routingPreference = typeof route.routingPreference === "string" ?
+          route.routingPreference :
+          "TRAFFIC_AWARE";
+
+        let origin = route.origin;
+        let destination = route.destination;
+        let intermediates = Array.isArray(route.intermediates) ? route.intermediates : [];
+
+        if ((!origin || !destination) && routeStops.length >= 2) {
+          origin = routeStops[0];
+          destination = routeStops[routeStops.length - 1];
+          intermediates = routeStops.slice(1, -1);
+        }
+
+        if (!origin || !destination) {
+          throw new HttpsError(
+              "invalid-argument",
+              "route must include origin and destination, or routeStops with at least two stops.",
+          );
+        }
+
+        return {
+          origin: toWaypoint(origin, "route.origin"),
+          destination: toWaypoint(destination, "route.destination"),
+          intermediates: intermediates.map((stop, index) => toWaypoint(stop, `route.intermediates[${index}]`)),
+          travelMode,
+          routingPreference,
+          computeAlternativeRoutes: route.computeAlternativeRoutes === true,
+          languageCode: typeof route.languageCode === "string" ? route.languageCode : "en-US",
+          units: typeof route.units === "string" ? route.units : "IMPERIAL",
+          departureTime,
+        };
+      };
+
+
+      const scheduleInput = request.data.schedule;
+      const normalizedSchedule = normalizeScheduleInput(
+          scheduleInput,
+          request.data.rideNow,
+          request.data.rideDateTime,
+      );
+
+      const routeInput = request.data.route || {routeStops: request.data.routeStops};
+      const computeRoutesBody = buildComputeRoutesBody(routeInput, normalizedSchedule.departureTime);
+
+      const apiKey = googleRoutesApiKey.value();
+      const fieldMask = typeof request.data.fieldMask === "string" && request.data.fieldMask.trim() ?
+        request.data.fieldMask.trim() :
+        "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs";
+
+      const apiResponse = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Goog-Api-Key": apiKey,
+          "X-Goog-FieldMask": fieldMask,
+        },
+        body: JSON.stringify(computeRoutesBody),
+      });
+
+      const responseText = await apiResponse.text();
+      const responseData = responseText ? JSON.parse(responseText) : {};
+
+      if (!apiResponse.ok) {
+        const message = responseData?.error?.message ||
+          `Google Routes API request failed with status ${apiResponse.status}.`;
+
+        throw new HttpsError("internal", message, {
+          status: apiResponse.status,
+          details: responseData?.error || null,
+        });
+      }
+
+      const routes = Array.isArray(responseData.routes) ? responseData.routes : [];
+
+      return {
+        schedule: normalizedSchedule,
+        request: computeRoutesBody,
+        routes,
+        raw: responseData,
+      };
+    },
+);
+
+export const createRequest =
+  onDocumentCreated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
+    const request = event.params.requestId;
+    log("New request: " + request);
+
+    const snapshot = event.data;
+    if (!snapshot) {
+      log("No data associated with the event");
+      return;
+    }
+    const data = snapshot.data();
+
+    log("Request user: " + data.user);
+
+    const driverCollection = db.collection("drivers");
+    const driverDocRefs = await driverCollection.listDocuments();
+    if (driverDocRefs.length === 0) {
+      log("There are no drivers to send notifications to.");
+      return;
+    }
+    const tokens = await db.getAll(...driverDocRefs);
+
+
+    const auth = getAuth();
+    const userProfile = await auth.getUser(data.user);
+
+    event.data.ref.set({phoneNumber: userProfile.phoneNumber ?? "unknown"}, {merge: true});
+
+    const notification = {
+      title: "You have a new request.",
+      body: (userProfile.phoneNumber ?? "Someone") +
+              " requested a ride.",
+      image: userProfile.photoURL ?? "",
+    };
+
+    // Send notifications to all tokens.
+    const messages = [];
+
+    tokens.forEach((doc) => {
+      messages.push({
+        token: doc.data().fcmToken,
+        notification: notification,
+      });
+    });
+
+    const batchResponse = await messaging.sendEach(messages);
+
+    if (batchResponse.failureCount < 1) {
+      // Messages sent sucessfully. We're done!
+      log("Messages sent.");
+      return;
+    }
+    warn(`${batchResponse.failureCount} messages weren't sent.`,
+        batchResponse);
+  });
+
+// Triggered when a new chat message is created in Firestore.
+export const chatMessageCreated = onDocumentCreated(
+    {document: "contactMessages/{messageId}", database: "travelingsalesman"},
+    async (event) => {
+      const messageId = event.params.messageId;
+      log("New chat message: " + messageId);
+
+      const snapshot = event.data;
+      if (!snapshot) {
+        log("No data associated with the chat message event");
+        return;
+      }
+
+      const data = snapshot.data();
+      if (!data) {
+        log("Chat message has no data");
+        return;
+      }
+
+      const sessionId = data.sessionId;
+      if (!sessionId) {
+        log("Chat message missing sessionId");
+        return;
+      }
+
+      try {
+        const sessionRef = db.collection("chatSessions").doc(sessionId);
+        const sessionSnap = await sessionRef.get();
+        if (!sessionSnap.exists) {
+          log(`No chat session found for ${sessionId}`);
+          return;
+        }
+
+        const sessionData = sessionSnap.data() || {};
+        const messageSenderId = data.senderId || null;
+        const sessionUserUid = sessionData.userUid || null;
+
+        // If the message sender is the same as the session owner, do not send a notification.
+        if (messageSenderId && sessionUserUid && messageSenderId === sessionUserUid) {
+          log(`Message ${messageId} originated from session owner; skipping notification.`);
+          return;
+        }
+
+        const token = sessionData.notificationToken || null;
+        if (!token) {
+          log(`No notification token for session ${sessionId}`);
+          return;
+        }
+
+        const notificationPayload = {
+          token: token,
+          data: {
+            body: data.text ? String(data.text).slice(0, 240) : "",
+            title: "New support message",
+            sessionId: String(sessionId),
+            messageId: String(messageId),
+          },
+        };
+
+        const response = await messaging.send(notificationPayload);
+        log(`Notification sent for message ${messageId}: ${response}`);
+      } catch (err) {
+        warn("Failed to send chat message notification:", err);
+      }
+    },
+);
+
+
+export const requestUpdated =
+    onDocumentUpdated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
+      const requestId = event.params.requestId;
+      log("Request updated: " + requestId);
+
+      const afterSnapshot = event.data.after;
+      if (!afterSnapshot) {
+        log("No data associated with the event");
+        return;
+      }
+
+      const data = afterSnapshot.data();
+      const beforeData = event.data.before?.data() || {};
+
+      if ("price" in data && data.price !== beforeData.price && !("paymentLink" in data)) {
+        log(`Request ${requestId} has new price: ${data.price}`);
+        // Here you could add additional logic, such as notifying the user about the price update.
+
+        const secretKey = stripeSecret.value();
+
+        const stripe =
+          new Stripe(secretKey, {
+            apiVersion: "2022-11-15",
+          });
+
+        const paymentLink = await stripe.paymentLinks.create({line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: `Ride Request ${data.phone | data.userPhone}`,
+              },
+              unit_amount: Math.round(data.price * 100), // price in cents
+            },
+            quantity: 1,
+          },
+        ],
+        });
+
+
+        await afterSnapshot.ref.set({paymentLink: paymentLink.url}, {merge: true});
+        log(`Payment link created for request ${requestId}: ${paymentLink.url}`);
+      }
+    });
+
+export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
+
+    (request, response) => {
+      let event = request.body;
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const endpointSecretKey = endpointSecret.value();
+
+      // Only verify the event if you have an endpoint secret defined.
+      // Otherwise use the basic event deserialized with JSON.parse
+      if (endpointSecretKey) {
+        // Get the signature sent by Stripe
+        const signature = request.headers["stripe-signature"];
+        try {
+          event = stripe.webhooks.constructEvent(
+              request.rawBody,
+              signature,
+              endpointSecretKey,
+          );
+        } catch (err) {
+          log(`⚠️  Webhook signature verification failed.`, err.message);
+          return response.sendStatus(400);
+        }
+      } else {
+        event = JSON.parse(request.body);
+      }
+
+
+      // Handle the event
+      switch (event.type) {
+        case "payment_intent.succeeded":
+          // const paymentIntent = event.data.object;
+          // console.log(`PaymentIntent for ${paymentIntent.amount} was successful!`);
+          // Then define and call a method to handle the successful payment intent.
+          // handlePaymentIntentSucceeded(paymentIntent);
+          break;
+        case "payment_method.attached":
+          // const paymentMethod = event.data.object;
+          // Then define and call a method to handle the successful attachment of a PaymentMethod.
+          // handlePaymentMethodAttached(paymentMethod);
+          break;
+        default:
+          // Unexpected event type
+          log(`Unhandled event type ${event.type}.`);
+      }
+
+      response.status(200).send();
+    },
+);
