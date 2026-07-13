@@ -20,7 +20,7 @@ import {
   onSnapshot
 } from 'firebase/firestore';
 import { getAnalytics, logEvent } from 'firebase/analytics';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 
 const firebaseConfig = {
     apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -51,6 +51,9 @@ export const analytics = getAnalytics(app);
 
 // Initialize Cloud Functions and get a reference to the service
 export const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}
 
 // ===== AUTHENTICATION FUNCTIONS =====
 

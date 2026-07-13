@@ -1,4 +1,4 @@
-import { getFunctions, httpsCallable } from "firebase/functions";
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from "firebase/functions";
 import { initializeApp } from 'firebase/app';
 
 const firebaseConfig = {
@@ -13,6 +13,11 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const functions = getFunctions(app);
+const emulatorHost = process.env.FUNCTIONS_EMULATOR_HOST || (process.env.FIRESTORE_EMULATOR_HOST ? "127.0.0.1:5001" : "");
+if (emulatorHost) {
+    const [host, port] = emulatorHost.split(":");
+    connectFunctionsEmulator(functions, host || "127.0.0.1", Number(port || 5001));
+}
 let mAccountId;
 
 // script.js

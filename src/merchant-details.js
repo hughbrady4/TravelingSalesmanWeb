@@ -192,7 +192,7 @@ const loadStripeCatalogFromFirestore = async (accountId) => {
   );
 
   const pricesQuery = query(
-    collection(db, 'stripePrices'),
+    collection(db, 'prices'),
   );
 
   const [productsSnapshot, pricesSnapshot] = await Promise.all([
@@ -363,7 +363,7 @@ const toggleProductStatus = async (priceId, currentOnline, buttonEl) => {
 
   try {
     await setDoc(
-      doc(db, 'stripePrices', priceId),
+      doc(db, 'prices', priceId),
       {
         online: nextOnline,
         updatedAt: serverTimestamp(),

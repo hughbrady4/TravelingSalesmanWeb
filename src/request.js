@@ -1,6 +1,6 @@
 import {initializeApp} from "firebase/app";
 import {connectAuthEmulator, getAuth} from "firebase/auth";
-import {getFunctions, httpsCallable} from "firebase/functions";
+import {connectFunctionsEmulator, getFunctions, httpsCallable} from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -18,6 +18,9 @@ if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, "http://127.0.0.1:9099");
 }
 const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+}
 const requestRideCallable = httpsCallable(functions, "requestRide");
 const currentPriceId = new URLSearchParams(window.location.search).get('priceId') || '';
 const currentAccountId = new URLSearchParams(window.location.search).get('accountId') || '';

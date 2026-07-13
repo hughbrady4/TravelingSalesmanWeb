@@ -20,8 +20,9 @@ const auth = getAuth(app);
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
-
-const db = getFirestore(app, 'travelingsalesman');
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
 if (__USE_AUTH_EMULATOR__) {
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
 }
@@ -34,6 +35,7 @@ let pricesUnsubscribe;
 
 const productDocsById = new Map();
 const priceDocsByProductId = new Map();
+const productCardsEl = document.getElementById('productCards');
 
 const LOCATION_MARKER_ICON = {
   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#0d6efd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>'),
@@ -192,16 +194,21 @@ const escapeHtml = (value) => String(value)
   .replace(/"/g, '&quot;')
   .replace(/'/g, '&#39;');
 
-const buildProductUrlWithParams = (baseUrl, accountId, priceId) => {
+const buildProductUrlWithParams = (baseUrl, accountId, productId, priceId) => {
   if (!baseUrl) {
     return null;
   }
 
   try {
     const url = new URL(baseUrl, window.location.origin);
-    url.searchParams.set('accountId', accountId);
+    if (accountId) {
+      url.searchParams.set('accountId', accountId);
+    }
+    if (productId) {
+      url.searchParams.set('product', productId);
+    }
     if (priceId) {
-      url.searchParams.set('priceId', priceId);
+      url.searchParams.set('price', priceId);
     }
     return url.toString();
   } catch (error) {
@@ -232,60 +239,60 @@ const closeProductPriceData = () => {
 
   productDocsById.clear();
   priceDocsByProductId.clear();
+  renderProductCards();
 };
 
-function toggleHighlight(markerView) {
-    if (markerView.content.classList.contains("highlight")) {
-        markerView.content.classList.remove("highlight");
-        markerView.zIndex = null;
-    }
-    else {
-        markerView.content.classList.add("highlight");
-        markerView.zIndex = 1;
-    }
-}
+function renderProductCards() {
+  const cardsEl = productCardsEl || document.getElementById('productCards');
+  if (!cardsEl) {
+    return;
+  }
 
-function buildContent(productData, relatedPrices) {
-    const content = document.createElement("div");
-    content.classList.add("driver");
+  const products = [...productDocsById.values()];
 
-    const date = new Date(productData.updated);
+  if (products.length === 0) {
+    cardsEl.innerHTML = '<div class="col-12"><div class="alert alert-secondary mb-0">No products available yet.</div></div>';
+    return;
+  }
 
-
+  cardsEl.innerHTML = products.map((productData) => {
+    const relatedPrices = priceDocsByProductId.get(productData.id) || [];
     const productUrl = typeof productData.url === 'string' ? productData.url.trim() : '';
     const accountId = typeof productData.accountId === 'string' ? productData.accountId.trim() : '';
+    const productId = typeof productData.id === 'string' ? productData.id.trim() : '';
 
+    let productLinkUrl = null;
+    if (productUrl) {
+      try {
+        const urlObj = new URL(productUrl);
+        const fullUrl = window.location.origin + urlObj.pathname;
+        productLinkUrl = buildProductUrlWithParams(fullUrl, accountId, productId);
+      } catch (error) {
+        console.error('Invalid product URL:', error);
+      }
+    }
+    const title = `${productData.accountDisplayName || 'Unknown account'} · ${productData.name || 'Untitled product'}`;
+    const description = productData.description || 'No description provided.';
+    const status = productData.online ? 'Available' : 'Unavailable';
 
-    const productLinkUrl = buildProductUrlWithParams(productUrl, accountId, relatedPrices.length > 0 ? relatedPrices[0].id : null);
-    const productLinkHtml = productLinkUrl
-    ? `<div style="margin-top:8px;"><a href="${escapeHtml(productLinkUrl)}" target="_blank" rel="noopener noreferrer">Open product link</a></div>`
-    : '';
-
-    // Format for a specific locale (e.g., en-GB) with desired options
-    const formattedDate = date.toLocaleString('en-GB', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    content.innerHTML = [`
-    <div class="icon">
-        <i aria-hidden="true" class="fa fa-icon fa-car" title="${productData.name}"></i>
-        <span class="fa-sr-only">Car</span>
-    </div>
-    <div class="details">
-        <div class="name">${productData.accountDisplayName}</div>
-        <div class="phone">${productData.description}</div>`,
-        productLinkHtml,`
+    return `
+      <div class="col-12 col-md-6 col-xl-4">
+        <div class="card h-100 shadow-sm border-0">
+          <div class="card-body d-flex flex-column">
+            <div class="d-flex justify-content-between align-items-start gap-3 mb-3">
+              <h2 class="h5 card-title mb-0">${escapeHtml(title)}</h2>
+              <span class="badge text-bg-light">${status}</span>
+            </div>
+            <p class="card-text text-body-secondary flex-grow-1">${escapeHtml(description)}</p>
+            <a class="btn btn-primary mt-2${productLinkUrl ? '' : ' disabled'}" href="${productLinkUrl ? escapeHtml(productLinkUrl) : '#'}"${productLinkUrl ? '' : ' tabindex="-1" aria-disabled="true"'}>
+              Request
+            </a>
+          </div>
         </div>
-    </div>
-    `].join('');
-    return content;
+      </div>
+    `;
+  }).join('');
 }
-
 
 const initializeProductPriceData = () => {
 
@@ -298,12 +305,15 @@ const initializeProductPriceData = () => {
   }
 
   const productsQuery = query(
-    collection(db, 'stripeProducts'),
+    collection(db, 'products'),
+    where('online', '==', true),
   );
 
   const pricesQuery = query(
-    collection(db, 'stripePrices'),
-    where('online', '==', true),
+    collection(db, 'prices'),
+    where('active', '==', true),
+
+
   );
 
   productsUnsubscribe = onSnapshot(
@@ -311,8 +321,12 @@ const initializeProductPriceData = () => {
     (snapshot) => {
       productDocsById.clear();
       snapshot.docs.forEach((productDoc) => {
-        productDocsById.set(productDoc.id, productDoc.data());
+        productDocsById.set(productDoc.id, {
+          id: productDoc.id,
+          ...productDoc.data(),
+        });
       });
+      renderProductCards();
 
     },
     (error) => {
@@ -335,8 +349,12 @@ const initializeProductPriceData = () => {
           priceDocsByProductId.set(priceData.product, []);
         }
 
-        priceDocsByProductId.get(priceData.product).push(priceData);
+        priceDocsByProductId.get(priceData.product).push({
+          id: priceDoc.id,
+          ...priceData,
+        });
       });
+      renderProductCards();
 
     },
     (error) => {
@@ -345,7 +363,6 @@ const initializeProductPriceData = () => {
     },
   );
 };
-
 
 const isValidLocation = (location) => {
   return !!location && Number.isFinite(location.lat) && Number.isFinite(location.lng);
@@ -605,7 +622,6 @@ const createPlaceSearchControl = () => {
 
   return controlCard;
 };
-
 
 window.addEventListener('DOMContentLoaded', () => {
   addDisclaimerAlert();

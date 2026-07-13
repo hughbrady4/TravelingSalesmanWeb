@@ -20,12 +20,12 @@ if (emulatorHost) {
 }
 
 try {
-  const listConnectedAccounts = httpsCallable(functions, "listConnectedAccounts");
-  const result = await listConnectedAccounts({
+  const loadData = httpsCallable(functions, "loadStripeData");
+  const result = await loadData({
     appliedConfigurations: ["merchant"],
   });
 
   console.log(result.data);
 } catch (error) {
-  console.error("listConnectedAccounts failed:", error);
+  console.error("loadStripeData failed:", error);
 }

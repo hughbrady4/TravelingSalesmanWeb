@@ -25,7 +25,10 @@ const app = initializeApp( {
   projectId: "osweb-140a8",
 });
 
-const db = getFirestore(app, "travelingsalesman");
+const isFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+
 
 const messaging = getMessaging();
 
@@ -110,8 +113,9 @@ export const createConnectedAccount = onCall(
       return {accountId: account.id};
     });
 
-export const listConnectedAccounts = onCall(
+export const loadStripeData = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]},
+
     async (request) => {
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
@@ -126,6 +130,103 @@ export const listConnectedAccounts = onCall(
       }
 
       const accounts = await stripe.v2.core.accounts.list(listParams);
+
+      for (const account of accounts.data) {
+        const accountData = account;
+
+        if (!account.metadata || !account.metadata.tsp_uid) {
+          try {
+            if (account.contact_email) {
+              const userRecord = await getAuth().getUserByEmail(account.contact_email);
+              accountData.userId = userRecord.uid;
+            } else {
+              warn("Skipping getUserByEmail: missing contact_email", {accountId: account.id});
+            }
+          } catch (error) {
+            warn("Failed getUserByEmail in listConnectedAccounts", {
+              accountId: account.id,
+              contactEmail: account.contact_email || "unknown",
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
+        } else {
+          accountData.userId = account.metadata.tsp_uid;
+        }
+
+        const hasMerchantConfiguration =
+          Array.isArray(account.applied_configurations) ?
+            account.applied_configurations.includes("merchant") :
+            account.applied_configurations?.merchant === true;
+
+        await db.collection("stripeAccounts").doc(account.id).set(accountData, {merge: true});
+
+        if (hasMerchantConfiguration) {
+          const merchantData = {
+            ...accountData,
+          };
+
+          await db.collection("merchants").doc(account.id).set(merchantData, {merge: true});
+        }
+
+        const prodListParams = {
+          active: true,
+          limit: 100,
+        };
+        const options = {
+          stripeAccount: account.id,
+        };
+
+        const accountDisplayName = account.display_name || "Unknown vendor";
+
+        const products = await stripe.products.list(prodListParams, options);
+
+        for (const product of products.data) {
+          if (account.id) {
+            product.accountId = account.id;
+          }
+          if (accountDisplayName) {
+            product.accountDisplayName = accountDisplayName;
+          }
+          const userId = product.metadata?.tsp_uid || "unknown";
+          if (userId && userId !== "unknown") {
+            product.userId = userId;
+          }
+          await db.collection("products").doc(product.id).set(product, {merge: true});
+        }
+
+        const prices = await stripe.prices.list({
+          active: true,
+          limit: 100,
+        }, options);
+
+        for (const price of prices.data) {
+          const userId = price.metadata?.tsp_uid || "unknown";
+          if (userId && userId !== "unknown") {
+            price.userId = userId;
+          }
+          await db.collection("prices").doc(price.id).set(price, {merge: true});
+        }
+      }
+
+      return {accounts: accounts.data};
+    });
+
+export const listConnectedAccounts = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const appliedConfigurations = request.data?.appliedConfigurations ?? request.data?.applied_configurations;
+      const acctListParams = {
+        limit: 20,
+      };
+
+      if (appliedConfigurations !== undefined) {
+        acctListParams.applied_configurations = appliedConfigurations;
+      }
+
+      const accounts = await stripe.v2.core.accounts.list(acctListParams);
 
       // Store account information in Firestore
       for (const account of accounts.data) {
@@ -305,7 +406,7 @@ export const createProduct = onCall(
         priceData.userId = userId;
       }
 
-      await db.collection("stripePrices").doc(priceData.id).set(priceData, {merge: true});
+      await db.collection("prices").doc(priceData.id).set(priceData, {merge: true});
 
 
       return {productId: product.id, priceId: priceData.id};
@@ -414,12 +515,47 @@ export const updateProduct = onCall(
       return {product: updatedProduct};
     });
 
-export const listProducts = onCall(
+export const listPrices = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
       const accountId = request.data.accountId;
       const options = {};
       if (accountId) {
         options.stripeAccount = accountId;
+      }
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const prices = await stripe.prices.list({
+        expand: ["data.product"],
+        active: true,
+        limit: 100,
+      });
+
+      for (const price of prices.data) {
+        const userId = price.metadata?.tsp_uid || "unknown";
+        if (userId && userId !== "unknown") {
+          price.userId = userId;
+        }
+        await db.collection("prices").doc(price.id).set(price, {merge: true});
+      }
+
+      return {prices: prices.data};
+    });
+
+export const listProducts = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
+      const accountId = request.data.accountId;
+
+      const listParams = {
+        active: true,
+        limit: 100,
+      };
+
+      const options = {};
+      if (accountId) {
+        options.stripeAccount = accountId;
+        listParams.options = options;
       }
 
       const secretKey = stripeSecret.value();
@@ -436,10 +572,7 @@ export const listProducts = onCall(
         }
       }
 
-      const products = await stripe.products.list({
-        active: true,
-        limit: 100,
-      }, options);
+      const products = await stripe.products.list(listParams);
 
       for (const product of products.data) {
         if (accountId) {
@@ -455,20 +588,7 @@ export const listProducts = onCall(
         await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
       }
 
-      const prices = await stripe.prices.list({
-        active: true,
-        limit: 100,
-      }, options);
-
-      for (const price of prices.data) {
-        const userId = price.metadata?.tsp_uid || "unknown";
-        if (userId && userId !== "unknown") {
-          price.userId = userId;
-        }
-        await db.collection("stripePrices").doc(price.id).set(price, {merge: true});
-      }
-
-      return {products: products.data, prices: prices.data};
+      return {products: products.data};
     });
 
 export const createCheckoutSession = onCall(
@@ -572,7 +692,7 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const distanceMiles = Number(request.data.distancemiles);
   const minutes = Number(request.data.minutes);
   const accountId = typeof request.data.accountId === "string" ? request.data.accountId.trim() : "";
-  const priceId = typeof request.data.priceId === "string" ? request.data.priceId.trim() : "";
+  const productId = typeof request.data.productId === "string" ? request.data.productId.trim() : "";
 
   if (!rideNow && !rideDateTime) {
     throw new HttpsError(
@@ -616,6 +736,7 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const createdAt = new Date();
   const rideRequest = {
     user: request.auth.uid,
+    productId: productId || null,
     createdTS: createdAt,
     updatedTS: createdAt,
     schedule: {
@@ -654,44 +775,9 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const requestRef = await db.collection("requests").add(rideRequest);
   log(`Ride request created for user ${request.auth.uid}: ${requestRef.id}`);
 
-  let checkoutUrl = null;
-  if (accountId && priceId) {
-    const secretKey = stripeSecret.value();
-    const stripe = new Stripe(secretKey);
-
-    const price = await stripe.prices.retrieve(priceId, {
-      stripeAccount: accountId,
-    });
-
-    const priceType = price.type;
-    const mode = priceType === "recurring" ? "subscription" : "payment";
-
-    const session = await stripe.checkout.sessions.create({
-      line_items: [
-        {
-          price: priceId,
-          quantity: Math.round(distanceMiles),
-        },
-      ],
-      phone_number_collection: {
-        enabled: true,
-      },
-      mode: mode,
-      success_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=true`,
-      cancel_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestRef.id)}&paid=false`,
-    }, {
-      stripeAccount: accountId,
-    });
-
-    checkoutUrl = session.url || null;
-
-    await requestRef.set({checkoutUrl, checkoutSessionId: session.id}, {merge: true});
-  }
-
   return {
     requestId: requestRef.id,
     status: rideRequest.status,
-    checkoutUrl,
   };
 });
 
@@ -961,7 +1047,7 @@ export const chatMessageCreated = onDocumentCreated(
     },
 );
 
-
+// compute pricing when a request is updated
 export const requestUpdated =
     onDocumentUpdated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
       const requestId = event.params.requestId;
@@ -974,35 +1060,53 @@ export const requestUpdated =
       }
 
       const data = afterSnapshot.data();
-      const beforeData = event.data.before?.data() || {};
+      // const beforeData = event.data.before?.data() || {};
 
-      if ("price" in data && data.price !== beforeData.price && !("paymentLink" in data)) {
-        log(`Request ${requestId} has new price: ${data.price}`);
+      if ("accountId" in data && "productId" in data && "prices" in data &&
+        Array.isArray(data.prices) && data.prices.length > 0) {
+        log(`Request ${requestId} has new prices: ${JSON.stringify(data.prices)}`);
         // Here you could add additional logic, such as notifying the user about the price update.
-
         const secretKey = stripeSecret.value();
+        const stripe = new Stripe(secretKey);
 
-        const stripe =
-          new Stripe(secretKey, {
-            apiVersion: "2022-11-15",
-          });
+        const lineItems = data.prices.map((price) => ({
+          price: price.id,
+          quantity: price.quantity || 1,
+        }));
 
-        const paymentLink = await stripe.paymentLinks.create({line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: `Ride Request ${data.phone | data.userPhone}`,
-              },
-              unit_amount: Math.round(data.price * 100), // price in cents
-            },
-            quantity: 1,
+        let mode = "payment";
+        for (const price of data.prices) {
+          if (price.type === "recurring") {
+            mode = "subscription";
+            break;
+          }
+        }
+
+        const session = await stripe.checkout.sessions.create({
+          line_items: lineItems,
+          phone_number_collection: {
+            enabled: true,
           },
-        ],
+          mode: mode,
+          success_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=true`,
+          cancel_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=false`,
+        }, {
+          stripeAccount: data.accountId,
         });
 
+        const paymentLink = await stripe.paymentLinks.create({
+          line_items: lineItems,
+          phone_number_collection: {
+            enabled: true},
+          after_completion: {
+            type: "redirect",
+            redirect: {
+              url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=true`,
+            },
+          },
+        });
 
-        await afterSnapshot.ref.set({paymentLink: paymentLink.url}, {merge: true});
+        await afterSnapshot.ref.set({paymentLink: paymentLink.url, sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
         log(`Payment link created for request ${requestId}: ${paymentLink.url}`);
       }
     });

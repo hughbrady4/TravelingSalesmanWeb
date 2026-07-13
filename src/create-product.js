@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, onAuthStateChanged } from 'firebase/auth';
 import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
-import { getFunctions, httpsCallable } from 'firebase/functions';
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 
 const firebaseConfig = {
   apiKey: 'AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk',
@@ -22,6 +22,9 @@ if (__USE_AUTH_EMULATOR__) {
 
 const db = getFirestore(app, 'travelingsalesman');
 const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}
 
 const statusEl = document.getElementById('productStatus');
 const formEl = document.getElementById('createProductForm');

@@ -20,12 +20,12 @@ if (emulatorHost) {
 }
 
 try {
-  const listConnectedAccounts = httpsCallable(functions, "listConnectedAccounts");
-  const result = await listConnectedAccounts({
-    appliedConfigurations: ["merchant"],
+  const listProducts = httpsCallable(functions, "listProducts");
+  const result = await listProducts({
+    // accountId: "platform",
   });
 
   console.log(result.data);
 } catch (error) {
-  console.error("listConnectedAccounts failed:", error);
+  console.error("listProducts failed:", error);
 }
