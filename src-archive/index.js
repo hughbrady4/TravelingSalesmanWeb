@@ -242,48 +242,6 @@ function toggleHighlight(markerView) {
     }
 }
 
-function buildContent(productData, relatedPrices) {
-    const content = document.createElement("div");
-    content.classList.add("driver");
-
-    const date = new Date(productData.updated);
-
-
-    const productUrl = typeof productData.url === 'string' ? productData.url.trim() : '';
-    const accountId = typeof productData.accountId === 'string' ? productData.accountId.trim() : '';
-
-
-    const productLinkUrl = buildProductUrlWithParams(productUrl, accountId, relatedPrices.length > 0 ? relatedPrices[0].id : null);
-    const productLinkHtml = productLinkUrl
-    ? `<div style="margin-top:8px;"><a href="${escapeHtml(productLinkUrl)}" target="_blank" rel="noopener noreferrer">Open product link</a></div>`
-    : '';
-
-    // Format for a specific locale (e.g., en-GB) with desired options
-    const formattedDate = date.toLocaleString('en-GB', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-
-    content.innerHTML = [`
-    <div class="icon">
-        <i aria-hidden="true" class="fa fa-icon fa-car" title="${productData.name}"></i>
-        <span class="fa-sr-only">Car</span>
-    </div>
-    <div class="details">
-        <div class="name">${productData.accountDisplayName}</div>
-        <div class="phone">${productData.description}</div>`,
-        productLinkHtml,`
-        </div>
-    </div>
-    `].join('');
-    return content;
-}
-
-
 const initializeProductPriceData = () => {
   if (!mMap) {
     return;

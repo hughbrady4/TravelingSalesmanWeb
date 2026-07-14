@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, onAuthStateChanged, signOut } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
+import { connectFirestoreEmulator, getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
 
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -18,8 +18,13 @@ const auth = getAuth(app);
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
 
-const db = getFirestore(app, 'travelingsalesman');
 
 const loadingEl = document.getElementById('loadingStatus');
 const signedOutEl = document.getElementById('signedOutState');
@@ -151,8 +156,8 @@ function renderStripeAccounts(accountDocs) {
     .map((accountDoc) => {
       const accountData = accountDoc.data();
       const accountId = escapeHtml(accountDoc.id || 'N/A');
-      const companyName = escapeHtml(accountData.companyName || 'N/A');
-      const email = escapeHtml(accountData.email || 'N/A');
+      const companyName = escapeHtml(accountData.display_name || 'N/A');
+      const email = escapeHtml(accountData.contact_email || 'N/A');
       const status = escapeHtml(accountData.status || 'N/A');
 
       return `
@@ -196,7 +201,6 @@ async function loadStripeAccounts(userId) {
     const stripeQuery = query(
       collection(db, 'stripeAccounts'),
       where('userId', '==', userId),
-      where('status', '!=', 'archived'),
     );
     const snapshot = await getDocs(stripeQuery);
 

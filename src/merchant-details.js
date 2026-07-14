@@ -1,7 +1,7 @@
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, doc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
-
+import { connectFirestoreEmulator, getFirestore, collection, doc, getDocs, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 const firebaseConfig = {
   apiKey: 'AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk',
   authDomain: 'osweb-140a8.firebaseapp.com',
@@ -18,8 +18,17 @@ const auth = getAuth(app);
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
 
-const db = getFirestore(app, 'travelingsalesman');
+const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+}
 
 const loadingEl = document.getElementById('merchantLoading');
 const signedOutEl = document.getElementById('signedOutState');
@@ -156,7 +165,6 @@ const loadStripeAccounts = async (userId) => {
   const stripeQuery = query(
     collection(db, 'stripeAccounts'),
     where('userId', '==', userId),
-    where('status', '!=', 'archived'),
   );
 
   const snapshot = await getDocs(stripeQuery);
@@ -166,11 +174,11 @@ const loadStripeAccounts = async (userId) => {
       const data = docSnapshot.data();
       return {
         id: docSnapshot.id,
-        companyName: data.companyName || '',
-        email: data.email || '',
+        companyName: data.display_name || '',
+        email: data.contact_email || '',
         status: data.status || 'unknown',
-        createdAt: data.createdAt,
-        updatedAt: data.updatedAt,
+        createdAt: data.created,
+        updatedAt: data.updated,
       };
     })
     .sort((a, b) => {
@@ -187,7 +195,7 @@ const loadStripeAccounts = async (userId) => {
 
 const loadStripeCatalogFromFirestore = async (accountId) => {
   const productsQuery = query(
-    collection(db, 'stripeProducts'),
+    collection(db, 'products'),
     where('accountId', '==', accountId),
   );
 
@@ -237,17 +245,13 @@ const renderAccounts = (accounts) => {
     <div class="col-12">
       <div class="card border-0 shadow-sm h-100">
         <div class="card-body">
-          <div class="d-flex flex-column flex-sm-row justify-content-between gap-3">
-            <div>
-              <div class="d-flex align-items-center gap-2 mb-2">
-                <h3 class="h6 mb-0">${escapeHtml(account.companyName || 'Unknown company')}</h3>
-                <span class="badge text-bg-${account.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(account.status)}</span>
-              </div>
-              <div class="small text-body-secondary mb-1">Account ID: ${escapeHtml(account.id)}</div>
-              <div class="small text-body-secondary mb-1">Email: ${escapeHtml(account.email || 'Not available')}</div>
-              <div class="small text-body-secondary">Created: ${escapeHtml(formatDate(account.createdAt))}</div>
-            </div>
+          <div class="d-flex justify-content-between gap-2 mb-2">
+            <h3 class="h6 mb-0">${escapeHtml(account.companyName || 'Unknown company')}</h3>
+            <span class="badge text-bg-${account.status === 'active' ? 'success' : 'secondary'}">${escapeHtml(account.status)}</span>
           </div>
+          <div class="small text-body-secondary mb-1">Account ID: ${escapeHtml(account.id)}</div>
+          <div class="small text-body-secondary mb-1">Email: ${escapeHtml(account.email || 'Not available')}</div>
+          <div class="small text-body-secondary">Created: ${escapeHtml(formatDate(account.createdAt))}</div>
         </div>
       </div>
     </div>
@@ -299,15 +303,16 @@ const renderPrices = (catalogs) => {
           <td class="text-nowrap">${escapeHtml(formatPrice(price))}</td>
           <td>${escapeHtml(billingMode)}</td>
           <td>${escapeHtml(recurringLabel)}</td>
-          <td class="text-nowrap"><span class="badge text-bg-${price.online ? 'success' : 'secondary'}">${escapeHtml(price.online ? 'Online' : 'Offline')}</span></td>
           <td class="text-nowrap">
             <button
               type="button"
               class="btn btn-sm btn-outline-secondary toggle-product-status-btn"
               data-price-id="${escapeHtml(price.id)}"
-              data-current-online="${price.online}"
+              data-product-id="${escapeHtml(product.id)}"
+              data-account-id="${escapeHtml(catalog.account.id)}"
+
             >
-              ${price.online ? 'Set Offline' : 'Set Online'}
+              Payment Link
             </button>
           </td>
         </tr>
@@ -348,12 +353,16 @@ const renderPrices = (catalogs) => {
   setSectionState('prices', 'ready');
 };
 
-const toggleProductStatus = async (priceId, currentOnline, buttonEl) => {
+const generatePaymentLink = async (accountId, productId, priceId, buttonEl) => {
   if (!priceId || !currentSignedInUser) {
     return;
   }
 
-  const nextOnline = !currentOnline;
+  const relatedPrices = [{ id: priceId, quantity: 1 }];
+  const paymentLinkCallable = httpsCallable(functions, 'getPaymentLink');
+  const paymentLinkResult = await paymentLinkCallable({ accountId, productId, prices: relatedPrices });
+  productLinkUrl = paymentLinkResult.data?.url || null;
+
   const previousText = buttonEl?.textContent || 'Updating...';
 
   if (buttonEl) {
@@ -365,7 +374,7 @@ const toggleProductStatus = async (priceId, currentOnline, buttonEl) => {
     await setDoc(
       doc(db, 'prices', priceId),
       {
-        online: nextOnline,
+        url: productLinkUrl,
         updatedAt: serverTimestamp(),
       },
       { merge: true },
@@ -451,9 +460,10 @@ if (pricesListEl) {
     const statusButtonEl = event.target.closest('.toggle-product-status-btn');
     if (statusButtonEl) {
       event.preventDefault();
-      toggleProductStatus(
+      generatePaymentLink(
+        statusButtonEl.dataset.accountId,
+        statusButtonEl.dataset.productId,
         statusButtonEl.dataset.priceId,
-        statusButtonEl.dataset.currentOnline === 'true',
         statusButtonEl,
       );
       return;

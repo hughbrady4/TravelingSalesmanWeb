@@ -17,7 +17,8 @@ import {
   doc,
   setDoc,
   getDoc,
-  onSnapshot
+  onSnapshot,
+  connectFirestoreEmulator
 } from 'firebase/firestore';
 import { getAnalytics, logEvent } from 'firebase/analytics';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
@@ -44,7 +45,12 @@ if (__USE_AUTH_EMULATOR__) {
 }
 
 // Initialize Cloud Firestore and get a reference to the service
-export const db = getFirestore(app, "travelingsalesman");
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
 
 // Initialize Firebase Analytics and get a reference to the service
 export const analytics = getAnalytics(app);
@@ -101,7 +107,7 @@ onAuthStateChanged(auth, (user) => {
     });
 
     // Listen for Stripe account data
-    const stripeQuery = query(collection(db, 'stripeAccounts'), where('userId', '==', user.uid), where('status', '!=', 'archived'));
+    const stripeQuery = query(collection(db, 'merchants'), where('userId', '==', user.uid));
     const unsubscribe = onSnapshot(stripeQuery, (querySnapshot) => {
       if (!querySnapshot.empty) {
         // Stripe account exists
@@ -124,8 +130,8 @@ onAuthStateChanged(auth, (user) => {
           const statusEl = document.getElementById('stripeStatus');
           
           if (accountIdEl) accountIdEl.textContent = doc.id || 'N/A';
-          if (companyNameEl) companyNameEl.textContent = accountData.companyName || 'N/A';
-          if (emailEl) emailEl.textContent = accountData.email || 'N/A';
+          if (companyNameEl) companyNameEl.textContent = accountData.display_name || 'N/A';
+          if (emailEl) emailEl.textContent = accountData.contact_email || 'N/A';
           if (statusEl) statusEl.textContent = accountData.status || 'N/A';
         }
       } else {

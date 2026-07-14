@@ -6,7 +6,7 @@
  *
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
-import {onDocumentCreated, onDocumentUpdated} from "firebase-functions/v2/firestore";
+import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {log, warn} from "firebase-functions/logger";
 
@@ -273,19 +273,21 @@ export const listConnectedAccounts = onCall(
 export const createAccountLink = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]},
     async (request) => {
-      const accountId = request.data.accountId;
-
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
+      const accountId = request.data.accountId;
+      const url = `${process.env.DOMAIN}`;
 
+      logger.log("Creating account link for account:", accountId);
+      logger.log("Using URL for account link:", url);
       const accountLink = await stripe.v2.core.accountLinks.create({
         account: accountId,
         use_case: {
           type: "account_onboarding",
           account_onboarding: {
             configurations: ["merchant", "customer"],
-            refresh_url: "https://travelingsalesman.web.app",
-            return_url: `https://travelingsalesman.web.app`,
+            refresh_url: url,
+            return_url: url,
           },
         },
       });
@@ -381,7 +383,7 @@ export const createProduct = onCall(
         product.userId = userId;
       }
 
-      await db.collection("stripeProducts").doc(product.id).set(product, {merge: true});
+      await db.collection("products").doc(product.id).set(product, {merge: true});
 
       const priceCreateData = {
         product: product.id,
@@ -632,53 +634,69 @@ export const createCheckoutSession = onCall(
     });
 
 // Callable function to generate a Stripe payment link for a given request ID.
-export const getPaymentLink = onCall(async (request) => {
-  const requestId = request.data.id;
-  const price = request.data.price;
+export const getPaymentLink = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => {
+      // logger.info("getPaymentLink invoked", {
+      //   hasAuth: Boolean(request.auth),
+      //   uid: request.auth?.uid || null,
+      //   accountId: request.data.accountId || null,
+      //   productId: request.data.productId || null,
+      //   priceCount: Array.isArray(request.data.prices) ? request.data.prices.length : 0,
+      //   hasSuccessUrl: Boolean(request.data.successUrl),
+      // });
 
-  if (!requestId) {
-    throw new HttpsError("invalid-argument", "The function must be called with a requestId.");
-  }
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+      const accountId = request.data.accountId;
+      const prices = Array.isArray(request.data.prices) ? request.data.prices : [];
+      const successUrl = request.data.successUrl || `${process.env.DOMAIN}/paid`;
 
-  if (!price) {
-    throw new HttpsError("invalid-argument", "The function must be called with a price.");
-  }
+      if (!prices || prices.length === 0) {
+        logger.warn("getPaymentLink rejected because no prices were supplied", {
+          accountId: accountId || null,
+        });
+        throw new HttpsError("invalid-argument", "The function must be called with at least one price.");
+      }
 
-  const requestDoc = await db.collection("requests").doc(requestId).get();
+      const lineItems = prices.map((price) => ({price: price.id, quantity: price.quantity || 1}));
 
-  if (!requestDoc.exists) {
-    throw new HttpsError("not-found", `No request found with ID: ${requestId}`);
-  }
-
-  const secretKey = stripeSecret.value();
-
-  const stripe =
-    new Stripe(secretKey, {
-      apiVersion: "2022-11-15",
+      logger.info("Creating payment link", {
+        accountId: accountId || null,
+        priceIds: prices.map((price) => price.id),
+        lineItems: lineItems,
+        successUrl,
+      });
+      let paymentLink;
+      try {
+        paymentLink = await stripe.paymentLinks.create({
+          line_items: lineItems,
+          phone_number_collection: {
+            enabled: true,
+          },
+          after_completion: {
+            type: "redirect",
+            redirect: {
+              url: successUrl,
+            },
+          },
+        }, {
+          stripeAccount: accountId,
+        });
+        logger.info(`Payment link created for account ${accountId}: ${paymentLink.url}`);
+      } catch (error) {
+        logger.error("Failed to create Stripe payment link", {
+          accountId: accountId || null,
+          priceIds: prices.map((price) => price.id),
+          successUrl,
+          errorMessage: error instanceof Error ? error.message : String(error),
+          errorType: error?.type || null,
+          errorCode: error?.code || null,
+        });
+        return null;
+      }
+      return {paymentLink: paymentLink.url};
     });
-
-  const paymentLink = await stripe.paymentLinks.create({line_items: [
-    {
-      price_data: {
-        currency: "usd",
-        product_data: {
-          name: `Ride Request`,
-          description: `Pickup: ${requestDoc.data().pickupAddress || "unknown"}\n, 
-            Dropoff: ${requestDoc.data().dropoffAddress || "unknown"}`,
-        },
-        unit_amount: Math.round(price * 100), // price in cents
-      },
-      quantity: 1,
-    },
-  ],
-  });
-
-  logger.info(`Payment link created for request ${requestId}: ${paymentLink.url}`);
-
-  await requestDoc.ref.set({price: price, paymentLink: paymentLink.url}, {merge: true});
-
-  return {paymentLink: paymentLink.url};
-});
 
 // Callable function to create a ride request from form payload.
 export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (request) => {
@@ -693,6 +711,7 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const minutes = Number(request.data.minutes);
   const accountId = typeof request.data.accountId === "string" ? request.data.accountId.trim() : "";
   const productId = typeof request.data.productId === "string" ? request.data.productId.trim() : "";
+  const prices = Array.isArray(request.data.prices) ? request.data.prices : [];
 
   if (!rideNow && !rideDateTime) {
     throw new HttpsError(
@@ -737,6 +756,7 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const rideRequest = {
     user: request.auth.uid,
     productId: productId || null,
+    prices: prices,
     createdTS: createdAt,
     updatedTS: createdAt,
     schedule: {
@@ -925,7 +945,7 @@ export const computeRouteEstimate = onCall(
 );
 
 export const createRequest =
-  onDocumentCreated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
+  onDocumentCreated({document: "requests/{requestId}", database: firestoreDatabase}, async (event) => {
     const request = event.params.requestId;
     log("New request: " + request);
 
@@ -982,7 +1002,7 @@ export const createRequest =
 
 // Triggered when a new chat message is created in Firestore.
 export const chatMessageCreated = onDocumentCreated(
-    {document: "contactMessages/{messageId}", database: "travelingsalesman"},
+    {document: "contactMessages/{messageId}", database: firestoreDatabase},
     async (event) => {
       const messageId = event.params.messageId;
       log("New chat message: " + messageId);
@@ -1047,69 +1067,95 @@ export const chatMessageCreated = onDocumentCreated(
     },
 );
 
-// compute pricing when a request is updated
-export const requestUpdated =
-    onDocumentUpdated({document: "requests/{requestId}", database: "travelingsalesman"}, async (event) => {
-      const requestId = event.params.requestId;
-      log("Request updated: " + requestId);
+/**
+ * Creates Stripe checkout artifacts for an existing ride request.
+ * @param {string} requestId Firestore request document ID.
+ * @return {Promise<{requestId: string, paymentLink: string, sessionUrl: string, checkoutSessionId: string}>}
+ */
+async function createRequestPricing(requestId) {
+  const normalizedRequestId = typeof requestId === "string" ? requestId.trim() : "";
+  if (!normalizedRequestId) {
+    throw new HttpsError("invalid-argument", "The function must be called with a requestId.");
+  }
 
-      const afterSnapshot = event.data.after;
-      if (!afterSnapshot) {
-        log("No data associated with the event");
-        return;
-      }
+  const requestRef = db.collection("requests").doc(normalizedRequestId);
+  const requestSnapshot = await requestRef.get();
+  if (!requestSnapshot.exists) {
+    throw new HttpsError("not-found", `No request found with ID: ${normalizedRequestId}`);
+  }
 
-      const data = afterSnapshot.data();
-      // const beforeData = event.data.before?.data() || {};
+  const data = requestSnapshot.data() || {};
+  if (!("accountId" in data) || !("productId" in data) || !("prices" in data) ||
+    !Array.isArray(data.prices) || data.prices.length === 0) {
+    throw new HttpsError(
+        "failed-precondition",
+        "The request must include accountId, productId, and at least one price.",
+    );
+  }
 
-      if ("accountId" in data && "productId" in data && "prices" in data &&
-        Array.isArray(data.prices) && data.prices.length > 0) {
-        log(`Request ${requestId} has new prices: ${JSON.stringify(data.prices)}`);
-        // Here you could add additional logic, such as notifying the user about the price update.
-        const secretKey = stripeSecret.value();
-        const stripe = new Stripe(secretKey);
+  log(`Request ${normalizedRequestId} has new prices: ${JSON.stringify(data.prices)}`);
 
-        const lineItems = data.prices.map((price) => ({
-          price: price.id,
-          quantity: price.quantity || 1,
-        }));
+  const secretKey = stripeSecret.value();
+  const stripe = new Stripe(secretKey);
 
-        let mode = "payment";
-        for (const price of data.prices) {
-          if (price.type === "recurring") {
-            mode = "subscription";
-            break;
-          }
-        }
+  const lineItems = data.prices.map((price) => ({
+    price: price.id,
+    quantity: price.quantity || 1,
+  }));
 
-        const session = await stripe.checkout.sessions.create({
-          line_items: lineItems,
-          phone_number_collection: {
-            enabled: true,
-          },
-          mode: mode,
-          success_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=true`,
-          cancel_url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=false`,
-        }, {
-          stripeAccount: data.accountId,
-        });
+  let mode = "payment";
+  for (const price of data.prices) {
+    if (price.type === "recurring") {
+      mode = "subscription";
+      break;
+    }
+  }
 
-        const paymentLink = await stripe.paymentLinks.create({
-          line_items: lineItems,
-          phone_number_collection: {
-            enabled: true},
-          after_completion: {
-            type: "redirect",
-            redirect: {
-              url: `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(requestId)}&paid=true`,
-            },
-          },
-        });
+  const successUrl = `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(normalizedRequestId)}&paid=true`;
+  const cancelUrl = `${process.env.DOMAIN}/request-details?requestId=${encodeURIComponent(normalizedRequestId)}&paid=false`;
 
-        await afterSnapshot.ref.set({paymentLink: paymentLink.url, sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
-        log(`Payment link created for request ${requestId}: ${paymentLink.url}`);
-      }
-    });
+  const session = await stripe.checkout.sessions.create({
+    line_items: lineItems,
+    phone_number_collection: {
+      enabled: true,
+    },
+    mode: mode,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+  }, {
+    stripeAccount: data.accountId,
+  });
+
+  const paymentLink = await stripe.paymentLinks.create({
+    line_items: lineItems,
+    phone_number_collection: {
+      enabled: true,
+    },
+    after_completion: {
+      type: "redirect",
+      redirect: {
+        url: successUrl,
+      },
+    },
+  }, {
+    stripeAccount: data.accountId,
+  });
+
+  await requestRef.set({paymentLink: paymentLink.url, sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
+  log(`Payment link created for request ${normalizedRequestId}: ${paymentLink.url}`);
+
+  return {
+    requestId: normalizedRequestId,
+    paymentLink: paymentLink.url,
+    sessionUrl: session.url,
+    checkoutSessionId: session.id,
+  };
+}
+
+export const priceRequest = onCall(
+    {secrets: ["STRIPE_SECRET_KEY"]},
+    async (request) => createRequestPricing(request.data?.requestId),
+);
 
 export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
 

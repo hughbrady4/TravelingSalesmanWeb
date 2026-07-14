@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { connectAuthEmulator, getAuth, onAuthStateChanged } from 'firebase/auth';
-import { getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
+import { connectFirestoreEmulator, getFirestore, collection, getDocs, query, where } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 
 const firebaseConfig = {
@@ -19,8 +19,13 @@ const auth = getAuth(app);
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
 
-const db = getFirestore(app, 'travelingsalesman');
 const functions = getFunctions(app);
 if (__USE_AUTH_EMULATOR__) {
   connectFunctionsEmulator(functions, '127.0.0.1', 5001);
@@ -150,7 +155,6 @@ const loadStripeAccounts = async (userId) => {
   const stripeQuery = query(
     collection(db, 'stripeAccounts'),
     where('userId', '==', userId),
-    where('status', '!=', 'archived'),
   );
 
   const snapshot = await getDocs(stripeQuery);
@@ -163,7 +167,7 @@ const loadStripeAccounts = async (userId) => {
       const data = docSnapshot.data();
       return {
         id: docSnapshot.id,
-        companyName: data.companyName || '',
+        companyName: data.display_name || '',
         createdAt: data.createdAt,
         updatedAt: data.updatedAt,
       };

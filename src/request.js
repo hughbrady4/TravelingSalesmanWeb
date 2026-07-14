@@ -1,5 +1,6 @@
 import {initializeApp} from "firebase/app";
 import {connectAuthEmulator, getAuth} from "firebase/auth";
+import {connectFirestoreEmulator, collection, getFirestore, query, where, getDocs} from "firebase/firestore";
 import {connectFunctionsEmulator, getFunctions, httpsCallable} from "firebase/functions";
 
 const firebaseConfig = {
@@ -17,12 +18,19 @@ const auth = getAuth(app);
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, "http://127.0.0.1:9099");
 }
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
 const functions = getFunctions(app);
 if (__USE_AUTH_EMULATOR__) {
   connectFunctionsEmulator(functions, "127.0.0.1", 5001);
 }
 const requestRideCallable = httpsCallable(functions, "requestRide");
-const currentPriceId = new URLSearchParams(window.location.search).get('priceId') || '';
+const priceRequestCallable = httpsCallable(functions, "priceRequest");
+const currentProductId  = new URLSearchParams(window.location.search).get('product') || '';
 const currentAccountId = new URLSearchParams(window.location.search).get('accountId') || '';
 
 let routeStops = [];
@@ -307,14 +315,51 @@ function setupFormSubmission() {
       routeStops,
       distancemiles: routeMetrics?.distanceMiles,
       minutes: routeMetrics?.durationMinutes,
-      priceId: currentPriceId || undefined,
+      productId: currentProductId || undefined,
       accountId: currentAccountId || undefined,
     };
+
+    let prices = [];
+    if (currentProductId) {
+      try {
+        const pricesQuery = query(
+          collection(db, 'prices'),
+          where('product', '==', currentProductId),
+          where('active', '==', true),
+        );
+        const pricesSnapshot = await getDocs(pricesQuery);
+        pricesSnapshot.forEach((price) => {
+          let quantity = 1;
+          const id = price.data().id;
+          if (price.data().nickname == "Per minute charge") {
+            quantity= Math.ceil(routeMetrics?.durationMinutes || 1);
+          } else if (price.data().nickname == "Mileage Charge") {
+            quantity = Math.ceil(routeMetrics?.distanceMiles || 1);
+          }
+
+          prices.push({id: id, quantity: quantity, ...price.data()});
+        });
+      } catch (pricesError) {
+        console.warn('Unable to fetch prices from Firestore:', pricesError);
+      }
+    }
+
+    ridePayload.prices = prices;
 
     try {
       const response = await requestRideCallable(ridePayload);
       const requestId = response?.data?.requestId || 'unknown';
-      const checkoutUrl = response?.data?.checkoutUrl || '';
+      let checkoutUrl = response?.data?.checkoutUrl || '';
+
+      if (requestId !== 'unknown' && prices.length > 0) {
+        try {
+          const pricingResponse = await priceRequestCallable({requestId});
+          checkoutUrl = pricingResponse?.data?.sessionUrl || pricingResponse?.data?.paymentLink || checkoutUrl;
+        } catch (pricingError) {
+          console.warn('Unable to create checkout session for request:', pricingError);
+        }
+      }
+
       const detailUrl = `request-details.html?requestId=${encodeURIComponent(requestId)}`;
       summary.innerHTML = `Ride request submitted (${requestId}): ${schedule} with ${routeStops.length} stop(s).${routeSummary} <a href="${detailUrl}" class="alert-link">View request details</a>.`;
       summary.classList.remove('d-none');

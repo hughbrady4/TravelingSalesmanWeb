@@ -2,7 +2,7 @@ import { initializeApp } from 'firebase/app';
 import { getAnalytics, logEvent } from 'firebase/analytics';
 import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
 import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
-
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
   authDomain: "osweb-140a8.firebaseapp.com",
@@ -25,6 +25,10 @@ const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman
 const db = getFirestore(app, firestoreDatabase);
 if (__USE_AUTH_EMULATOR__) {
   connectFirestoreEmulator(db, '127.0.0.1', 8080);
+}
+const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
 }
 
 let pendingSavedLocation;

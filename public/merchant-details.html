@@ -90,13 +90,13 @@
               <div class="card-body p-4">
                 <div class="d-flex align-items-start justify-content-between gap-3 mb-3">
                   <div>
-                    <h2 class="h4 mb-2">Stripe Accounts</h2>
-                    <p class="text-body-secondary mb-0">Generate a Stripe account link for each connected merchant account.</p>
+                    <h2 class="h4 mb-2">Accounts</h2>
+                    <p class="text-body-secondary mb-0">Generate a account link for each connected merchant account.</p>
                   </div>
-                  <span id="accountsSummary" class="badge text-bg-light border">0 Stripe accounts</span>
+                  <span id="accountsSummary" class="badge text-bg-light border">0 accounts</span>
                 </div>
-                <div id="accountsLoading" class="text-body-secondary small mb-3">Loading Stripe accounts...</div>
-                <div id="accountsEmpty" class="alert alert-light border mb-0" style="display:none;">No Stripe accounts found.</div>
+                <div id="accountsLoading" class="text-body-secondary small mb-3">Loading accounts...</div>
+                <div id="accountsEmpty" class="alert alert-light border mb-0" style="display:none;">No accounts found.</div>
                 <div id="accountsList" class="row g-3" style="display:none;"></div>
               </div>
             </div>
@@ -107,13 +107,10 @@
               <div class="card-body p-4">
                 <div class="d-flex flex-column flex-sm-row justify-content-between align-items-sm-start gap-3 mb-3">
                   <div>
-                    <h2 class="h4 mb-2">Stripe Prices</h2>
+                    <h2 class="h4 mb-2">Products and Prices</h2>
                     <p class="text-body-secondary mb-0">Product names, descriptions, and live prices pulled from each connected account.</p>
                   </div>
-                  <div class="d-flex align-items-center gap-2">
-                    <span id="pricesSummary" class="badge text-bg-light border">0 active prices</span>
-                    <a href="create-product.html" class="btn btn-outline-primary btn-sm">Create Product</a>
-                  </div>
+                  <span id="pricesSummary" class="badge text-bg-light border">0 active prices</span>
                 </div>
                 <div id="pricesLoading" class="text-body-secondary small mb-3">Loading Stripe prices...</div>
                 <div id="pricesEmpty" class="alert alert-light border mb-0" style="display:none;">No Stripe prices found.</div>
