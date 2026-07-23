@@ -634,6 +634,7 @@ window.addEventListener('DOMContentLoaded', () => {
   const getStartedBtn = document.getElementById('getStartedBtn');
   const signInLink = document.getElementById('signInLink');
   const contactLink = document.getElementById('contactLink');
+  const requestHistoryLink = document.getElementById('requestHistoryLink');
   const brandLink = document.getElementById('brandLink');
 
   if (getStartedBtn) {
@@ -657,6 +658,13 @@ window.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  if (requestHistoryLink) {
+    requestHistoryLink.addEventListener('click', (event) => {
+      event.preventDefault();
+      navigate('request-history.html', 'home_request_history');
+    });
+  }
+
   if (brandLink) {
     brandLink.addEventListener('click', (event) => {
       event.preventDefault();
@@ -667,6 +675,10 @@ window.addEventListener('DOMContentLoaded', () => {
   safeLogEvent('page_view', { page_location: 'home' });
 
   const myLocationControl = createMyLocationControl();
+  const myLocationControlContainer = document.getElementById('myLocationControlContainer');
+  if (myLocationControlContainer) {
+    myLocationControlContainer.appendChild(myLocationControl);
+  }
 
   //const placeSearchControl = createPlaceSearchControl();
 

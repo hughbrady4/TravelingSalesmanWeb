@@ -59,7 +59,11 @@
           <h1 class="h4 mb-1">Request Details</h1>
           <p class="mb-0 opacity-75">Full ride request information</p>
         </div>
-        <a href="request.html" class="btn btn-light btn-sm">New Request</a>
+        <div>
+          <a id="cancel_request" class="btn btn-light btn-sm">Cancel Request</a>
+          <a id="contact_merchant" class="btn btn-light btn-sm">Contact</a>
+          <a id="complete_payment" class="btn btn-light btn-sm">Complete Payment</a>
+        </div>
       </header>
 
       <div class="card-body p-4">
@@ -70,8 +74,8 @@
           <div class="row g-3 mb-4">
             <div class="col-md-6">
               <div class="border rounded p-3 h-100 bg-light-subtle">
-                <div class="text-secondary small">Request ID</div>
-                <div id="request-id" class="fw-semibold"></div>
+                <div class="text-secondary small">Merchant</div>
+                <div id="request-merchant" class="fw-semibold"></div>
               </div>
             </div>
             <div class="col-md-6">
@@ -82,8 +86,8 @@
             </div>
             <div class="col-md-6">
               <div class="border rounded p-3 h-100 bg-light-subtle">
-                <div class="text-secondary small">User UID</div>
-                <div id="request-user" class="fw-semibold"></div>
+                <div class="text-secondary small">Contact Email</div>
+                <div id="request-email" class="fw-semibold"></div>
               </div>
             </div>
             <div class="col-md-6">
@@ -118,11 +122,6 @@
             </div>
           </div>
 
-          <div id="payment-url-container" class="alert alert-success d-none" role="status">
-            <strong>Payment URL:</strong>
-            <a id="payment-url" href="#" target="_blank" rel="noopener noreferrer" class="ms-2"></a>
-          </div>
-
           <section class="mb-4">
             <h2 class="h6">Route Stops</h2>
             <div class="table-responsive">
@@ -140,10 +139,6 @@
             </div>
           </section>
 
-          <section>
-            <h2 class="h6">Raw Request Data</h2>
-            <pre id="raw-request" class="raw-json mb-0"></pre>
-          </section>
         </div>
       </div>
     </section>

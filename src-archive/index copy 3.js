@@ -13,7 +13,7 @@ import {log, warn} from "firebase-functions/logger";
 import {initializeApp, applicationDefault} from "firebase-admin/app";
 
 import {getMessaging} from "firebase-admin/messaging";
-import {getFirestore, Timestamp} from "firebase-admin/firestore";
+import {getFirestore, serverTimestamp} from "firebase-admin/firestore";
 import {Stripe} from "stripe";
 import {defineSecret} from "firebase-functions/params";
 
@@ -205,14 +205,6 @@ export const loadStripeData = onCall(
             price.userId = userId;
           }
           await db.collection("prices").doc(price.id).set(price, {merge: true});
-        }
-
-        const sessions = await stripe.checkout.sessions.list({
-          status: "open",
-          limit: 50,
-        }, options);
-        for (const session of sessions.data) {
-          await db.collection("checkoutSessions").doc(session.id).set(session, {merge: true});
         }
       }
 
@@ -760,25 +752,6 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
   const pickupStop = normalizedStops[0];
   const dropoffStop = normalizedStops[normalizedStops.length - 1];
 
-  let merchantUid = null;
-  let merchantDisplayName = null;
-  let merchantEmail = null;
-
-  if (accountId) {
-    const merchantDoc = await db.collection("merchants").doc(accountId).get();
-    if (!merchantDoc.exists) {
-      throw new HttpsError(
-          "not-found",
-          "No merchant record found for the provided accountId.",
-      );
-    }
-
-    const merchantData = merchantDoc.data() || {};
-    merchantUid = merchantData.userId || merchantData.uid || null;
-    merchantDisplayName = merchantData.display_name || merchantData.displayName || null;
-    merchantEmail = merchantData.contact_email || merchantData.email || null;
-  }
-
   const createdAt = new Date();
   const rideRequest = {
     user: request.auth.uid,
@@ -792,9 +765,6 @@ export const requestRide = onCall({secrets: ["STRIPE_SECRET_KEY"]}, async (reque
     },
     routeStops: normalizedStops,
     accountId: accountId || null,
-    merchantUid,
-    merchantDisplayName,
-    merchantEmail,
     pickupAddress: pickupStop.address,
     dropoffAddress: dropoffStop.address,
     A: {
@@ -1058,7 +1028,6 @@ export const chatMessageCreated = onDocumentCreated(
       const messageSenderId = data.senderId || null;
 
       try {
-        // first get the token from chat session document, then send notification to that token
         const sessionRef = db.collection("chatSessions").doc(sessionId);
         const sessionSnap = await sessionRef.get();
         if (!sessionSnap.exists) {
@@ -1066,70 +1035,45 @@ export const chatMessageCreated = onDocumentCreated(
           return;
         }
         sessionRef.set({
-          updatedAt: Timestamp.now(),
-          lastMessageText: data.text || "",
-          lastMessageSenderId: messageSenderId || null,
+          lastMessageTS: serverTimestamp()
         }, {merge: true});
 
         // uid of the user who owns the session
         const sessionData = sessionSnap.data() || {};
         const sessionUserUid = sessionData.userUid || null;
 
-        // Send notification to all tokens.
-        const fids = [];
-
         // If the message sender is the same as the session owner, do not send a notification.
         if (messageSenderId && sessionUserUid && messageSenderId === sessionUserUid) {
           log(`Message ${messageId} originated from session owner; skipping notification.`);
-        } else {
-          const token = sessionData.notificationToken || null;
-          if (token) {
-            fids.push(token);
-            sessionRef.set({
-              lastMessageSenderId: messageSenderId || null,
-            }, {merge: true});
-          }
+          return;
         }
 
-        // Get all admin tokens and send notifications to them as well.
         const adminCollection = db.collection("admin");
         const adminDocRefs = await adminCollection.listDocuments();
         if (adminDocRefs.length === 0) {
           log("There are no admins to send notifications to.");
-        } else {
-          const adminDocs = await db.getAll(...adminDocRefs);
-          adminDocs.forEach((doc) => {
-            if (doc.exists && doc.data().fcmToken) {
-              fids.push(doc.data().fcmToken);
-            }
-          });
-          log(`Sending chat message notification to ${adminDocRefs.length} admins.`);
+          return;
         }
+        const tokens = await db.getAll(...adminDocRefs);
 
-        if (fids.length === 0) {
-          log("No notification tokens found for chat message.");
+        const token = sessionData.notificationToken || null;
+        if (!token) {
+          log(`No notification token for session ${sessionId}`);
           return;
         }
 
         const notificationPayload = {
-          fids: fids,
-          tokens: fids,
+          token: token,
           data: {
             body: data.text ? String(data.text).slice(0, 240) : "",
-            title: "Traveling Salesman support message",
+            title: "New support message",
             sessionId: String(sessionId),
             messageId: String(messageId),
           },
         };
 
-        const batchResponse = await messaging.sendEachForMulticast(notificationPayload);
-
-        if (batchResponse.failureCount < 1) {
-          // Messages sent sucessfully. We're done!
-          log(`${batchResponse.successCount} messages sent.`);
-          return;
-        }
-        warn(`Notification sent for message ${messageId}: ${batchResponse.successCount} successful, ${batchResponse.failureCount} failed.`);
+        const response = await messaging.send(notificationPayload);
+        log(`Notification sent for message ${messageId}: ${response}`);
       } catch (err) {
         warn("Failed to send chat message notification:", err);
       }
@@ -1195,10 +1139,27 @@ async function createRequestPricing(requestId) {
     stripeAccount: data.accountId,
   });
 
-  await requestRef.set({sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
+  const paymentLink = await stripe.paymentLinks.create({
+    line_items: lineItems,
+    phone_number_collection: {
+      enabled: true,
+    },
+    after_completion: {
+      type: "redirect",
+      redirect: {
+        url: successUrl,
+      },
+    },
+  }, {
+    stripeAccount: data.accountId,
+  });
+
+  await requestRef.set({paymentLink: paymentLink.url, sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
+  log(`Payment link created for request ${normalizedRequestId}: ${paymentLink.url}`);
 
   return {
     requestId: normalizedRequestId,
+    paymentLink: paymentLink.url,
     sessionUrl: session.url,
     checkoutSessionId: session.id,
   };
@@ -1207,107 +1168,6 @@ async function createRequestPricing(requestId) {
 export const priceRequest = onCall(
     {secrets: ["STRIPE_SECRET_KEY"]},
     async (request) => createRequestPricing(request.data?.requestId),
-);
-
-export const getCheckoutSession = onCall(
-    {secrets: ["STRIPE_SECRET_KEY"]},
-    async (request) => {
-      const accountId = request.data?.accountId;
-      const checkoutSessionId = request.data?.checkoutSessionId;
-
-      if (!accountId) {
-        throw new HttpsError("invalid-argument", "The function must be called with an accountId.");
-      }
-
-      if (!checkoutSessionId) {
-        throw new HttpsError("invalid-argument", "The function must be called with a checkoutSessionId.");
-      }
-
-      const secretKey = stripeSecret.value();
-      const stripe = new Stripe(secretKey);
-
-      // Retrieve the checkout session from Stripe
-      const session = await stripe.checkout.sessions.retrieve(
-          checkoutSessionId,
-          {stripeAccount: accountId},
-      );
-
-      if (!session) {
-        throw new HttpsError("not-found", `Checkout session ${checkoutSessionId} not found.`);
-      }
-
-      // Store the session in Firestore
-      const sessionData = {
-        id: session.id,
-        accountId: accountId,
-        status: session.status,
-        customer: session.customer,
-        customer_email: session.customer_email,
-        payment_status: session.payment_status,
-        amount_total: session.amount_total,
-        currency: session.currency,
-        created: session.created ? new Date(session.created * 1000) : null,
-        expires_at: session.expires_at ? new Date(session.expires_at * 1000) : null,
-        mode: session.mode,
-        payment_intent: session.payment_intent,
-        line_items: session.line_items,
-        metadata: session.metadata,
-        retrievedAt: Timestamp.now(),
-      };
-
-      await db.collection("checkoutsessions").doc(session.id).set(sessionData, {merge: true});
-
-      log(`Checkout session ${checkoutSessionId} retrieved and stored for account ${accountId}`);
-
-      return {
-        sessionId: session.id,
-        status: session.status,
-        paymentStatus: session.payment_status,
-      };
-    },
-);
-
-export const expireCheckoutSession = onCall(
-    {secrets: ["STRIPE_SECRET_KEY"]},
-    async (request) => {
-      const accountId = request.data?.accountId;
-      const checkoutSessionId = request.data?.checkoutSessionId;
-
-      if (!accountId) {
-        throw new HttpsError("invalid-argument", "The function must be called with an accountId.");
-      }
-
-      if (!checkoutSessionId) {
-        throw new HttpsError("invalid-argument", "The function must be called with a checkoutSessionId.");
-      }
-
-      const secretKey = stripeSecret.value();
-      const stripe = new Stripe(secretKey);
-
-      // Expire the checkout session
-      const expiredSession = await stripe.checkout.sessions.expire(
-          checkoutSessionId,
-          {stripeAccount: accountId},
-      );
-
-      if (!expiredSession) {
-        throw new HttpsError("not-found", `Checkout session ${checkoutSessionId} not found.`);
-      }
-
-      // Update the session status in Firestore
-      await db.collection("checkoutsessions").doc(expiredSession.id).set({
-        status: expiredSession.status,
-        expires_at: expiredSession.expires_at ? new Date(expiredSession.expires_at * 1000) : null,
-        updatedAt: Timestamp.now(),
-      }, {merge: true});
-
-      log(`Checkout session ${checkoutSessionId} expired for account ${accountId}`);
-
-      return {
-        sessionId: expiredSession.id,
-        status: expiredSession.status,
-      };
-    },
 );
 
 export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
@@ -1352,54 +1212,6 @@ export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE
           // const paymentMethod = event.data.object;
           // Then define and call a method to handle the successful attachment of a PaymentMethod.
           // handlePaymentMethodAttached(paymentMethod);
-          break;
-        default:
-          // Unexpected event type
-          log(`Unhandled event type ${event.type}.`);
-      }
-
-      response.status(200).send();
-    },
-);
-
-export const checkoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
-    (request, response) => {
-      let event = request.body;
-
-      const secretKey = stripeSecret.value();
-      const stripe = new Stripe(secretKey);
-
-      const endpointSecretKey = endpointSecret.value();
-
-      // Only verify the event if you have an endpoint secret defined.
-      // Otherwise use the basic event deserialized with JSON.parse
-      if (endpointSecretKey) {
-        // Get the signature sent by Stripe
-        const signature = request.headers["stripe-signature"];
-        try {
-          event = stripe.webhooks.constructEvent(
-              request.rawBody,
-              signature,
-              endpointSecretKey,
-          );
-        } catch (err) {
-          log(`⚠️  Webhook signature verification failed.`, err.message);
-          return response.sendStatus(400);
-        }
-      } else {
-        event = JSON.parse(request.body);
-      }
-
-      // Handle the event
-      let session;
-      let status;
-      switch (event.type) {
-        case "checkout.session.completed":
-          session = event.data.object;
-          status = session.payment_status;
-          log(`Checkout session completed for session ID: ${session.id} with payment status: ${status}`);
-          // Then define and call a method to handle the successful checkout session.
-          // handleCheckoutSessionCompleted(session);
           break;
         default:
           // Unexpected event type

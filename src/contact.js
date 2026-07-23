@@ -12,6 +12,7 @@ import {
   doc,
   setDoc,
   getDocs,
+  connectFirestoreEmulator,
 } from "firebase/firestore";
 import { getMessaging, onRegistered, register, onMessage} from "firebase/messaging";
 
@@ -25,8 +26,6 @@ const firebaseConfig = {
   measurementId: "G-GWDJ4TQSSY",
 };
 
-
-
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
@@ -34,8 +33,14 @@ if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
 
-const firestore = getFirestore(app, "travelingsalesman");
-const SESSION_STORAGE_KEY = "contactChatSessionId";
+const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
+const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+const db = getFirestore(app, firestoreDatabase);
+if (__USE_AUTH_EMULATOR__) {
+  connectFirestoreEmulator(db, "127.0.0.1", 8080);
+}
+
+
 
 let currentUserUid = null;
 let authReadyResolve;
@@ -56,9 +61,9 @@ const sessionReady = new Promise((resolve) => {
 
 
 let cachedNotificationToken = null;
-const chatMessagesCollection = collection(firestore, "contactMessages");
-const chatSessionsCollection = collection(firestore, "chatSessions");
-const adminsCollection = collection(firestore, "admins");
+const chatMessagesCollection = collection(db, "contactMessages");
+const chatSessionsCollection = collection(db, "chatSessions");
+const adminsCollection = collection(db, "admins");
 const messaging = getMessaging(app);
 
 
@@ -140,9 +145,9 @@ function getSessionTitleDescription() {
 
 async function findOpenChatSessionId() {
 
-  if (sessionId) {
-    return sessionId;
-  }
+  // if (sessionId) {
+  //   return sessionId;
+  // }
 
   try {
     const openSessionQuery = query(
@@ -153,7 +158,6 @@ async function findOpenChatSessionId() {
     const snapshot = await getDocs(openSessionQuery);
     if (!snapshot.empty) {
       const existingDoc = snapshot.docs[0];
-      localStorage.setItem(SESSION_STORAGE_KEY, existingDoc.id);
       sessionId = existingDoc.id;
 
 
@@ -172,7 +176,6 @@ async function findOpenChatSessionId() {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      localStorage.setItem(SESSION_STORAGE_KEY, newSessionId);
       sessionId = newSessionId;
       
       
@@ -190,24 +193,6 @@ async function findOpenChatSessionId() {
 
   return null;
 }
-
-async function getAdminUids() {
-  try {
-    const snapshot = await getDocs(adminsCollection);
-    const adminUids = [];
-    snapshot.forEach((doc) => {
-      const data = doc.data();
-      if (data && data.active === true) {
-        adminUids.push(data.key);
-      }
-    });
-    return adminUids;
-  } catch (error) {
-    console.error("Failed to fetch admin UIDs:", error);
-    return [];
-  }
-}
-
 
 function createMessageBubble(text, type = "sent") {
   const bubble = document.createElement("div");
@@ -254,7 +239,7 @@ function renderChatMessages(snapshot) {
   scrollChatToBottom(messageList);
 }
 
-async function saveChatMessage(text, type = "sent", senderId = null) {
+async function saveChatMessage(text) {
   try {
 
     await authReady;
@@ -271,13 +256,12 @@ async function saveChatMessage(text, type = "sent", senderId = null) {
     
     await sessionReady;
 
-    const messageSenderId = senderId || currentUserUid || "unknown";
+    const messageSenderId =currentUserUid || "unknown";
     await ensureChatSessionNotificationToken();
     await addDoc(chatMessagesCollection, {
       sessionId,
       senderId: messageSenderId,
       text,
-      type,
       createdAt: serverTimestamp(),
     });
   } catch (error) {
@@ -323,7 +307,7 @@ function handleUserSend() {
   input.value = "";
   input.focus();
 
-  saveChatMessage(message, "sent");
+  saveChatMessage(message);
 
 
 }

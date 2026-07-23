@@ -1,6 +1,6 @@
 import {initializeApp} from "firebase/app";
 import {connectAuthEmulator, getAuth} from "firebase/auth";
-import {connectFirestoreEmulator, collection, getFirestore, query, where, getDocs} from "firebase/firestore";
+import {connectFirestoreEmulator, collection, doc, getDoc, getFirestore, query, where, getDocs} from "firebase/firestore";
 import {connectFunctionsEmulator, getFunctions, httpsCallable} from "firebase/functions";
 
 const firebaseConfig = {
@@ -38,9 +38,46 @@ let routeStops = [];
 let dateTimeInput;
 let nowCheckbox;
 let routeList;
-let routeData;
 let placeAutocomplete;
 let Route;
+let addStopConfirmationModal;
+let pendingRouteStop = null;
+
+function setRequestHeader(productData = null) {
+  const productNameEl = document.getElementById('request-product-name');
+  const productDescriptionEl = document.getElementById('request-product-description');
+  const accountDisplayNameEl = document.getElementById('request-account-display-name');
+
+  if (!productNameEl || !productDescriptionEl || !accountDisplayNameEl) {
+    return;
+  }
+
+  const productName = String(productData?.name || 'Ride Request');
+  const productDescription = String(productData?.description || 'Choose your schedule and build your route stops.');
+  const accountDisplayName = String(productData?.accountDisplayName || 'Unknown account');
+
+  productNameEl.textContent = productName;
+  productDescriptionEl.textContent = productDescription;
+  accountDisplayNameEl.textContent = accountDisplayName;
+}
+
+async function loadRequestHeaderProduct() {
+  setRequestHeader();
+
+  if (!currentProductId) {
+    return;
+  }
+
+  try {
+    const productRef = doc(db, 'products', currentProductId);
+    const productSnapshot = await getDoc(productRef);
+    if (productSnapshot.exists()) {
+      setRequestHeader(productSnapshot.data());
+    }
+  } catch (error) {
+    console.warn('Unable to load product details for request header:', error);
+  }
+}
 
 function formatDateTimeLocal(date) {
   const year = date.getFullYear();
@@ -70,6 +107,55 @@ function addRouteStop(stop) {
 function removeRouteStop(index) {
   routeStops = routeStops.filter((_, stopIndex) => stopIndex !== index);
   renderRouteList();
+}
+
+function setupAddStopConfirmationModal() {
+  const modalElement = document.getElementById('add-stop-confirmation-modal');
+  const confirmButton = document.getElementById('confirm-add-stop-button');
+
+  if (!modalElement || !confirmButton || !window.bootstrap?.Modal) {
+    return;
+  }
+
+  addStopConfirmationModal = new window.bootstrap.Modal(modalElement);
+
+  confirmButton.addEventListener('click', () => {
+    if (!pendingRouteStop) {
+      return;
+    }
+
+    addRouteStop(pendingRouteStop);
+    pendingRouteStop = null;
+    addStopConfirmationModal.hide();
+  });
+
+  modalElement.addEventListener('hidden.bs.modal', () => {
+    pendingRouteStop = null;
+  });
+}
+
+function requestAddRouteStopConfirmation(stop) {
+  if (!stop) {
+    return;
+  }
+
+  if (!addStopConfirmationModal) {
+    addRouteStop(stop);
+    return;
+  }
+
+  pendingRouteStop = stop;
+
+  const labelElement = document.getElementById('confirm-stop-label');
+  const addressElement = document.getElementById('confirm-stop-address');
+  if (labelElement) {
+    labelElement.textContent = stop.label || 'Selected location';
+  }
+  if (addressElement) {
+    addressElement.textContent = stop.address || `${Number(stop.lat).toFixed(6)}, ${Number(stop.lng).toFixed(6)}`;
+  }
+
+  addStopConfirmationModal.show();
 }
 
 function renderRouteList() {
@@ -111,7 +197,6 @@ function renderRouteList() {
     });
   }
 
-  routeData.value = JSON.stringify(routeStops, null, 2);
 }
 
 function setupDateTimeInput() {
@@ -158,7 +243,7 @@ function setupAutocomplete() {
     const label = place.displayName || 'Selected location';
     const address = place.formattedAddress || `${lat.toFixed(6)}, ${lng.toFixed(6)}`;
 
-    addRouteStop({
+    requestAddRouteStopConfirmation({
       source: 'place-autocomplete',
       label,
       address,
@@ -188,7 +273,7 @@ function setupMyLocationButton() {
       (position) => {
         const { latitude, longitude } = position.coords;
 
-        addRouteStop({
+        requestAddRouteStopConfirmation({
           source: 'my-location',
           label: 'My Location',
           address: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
@@ -381,8 +466,9 @@ async function init() {
   dateTimeInput = document.getElementById('ride-datetime');
   nowCheckbox = document.getElementById('ride-now');
   routeList = document.getElementById('route-list');
-  routeData = document.getElementById('route-data');
 
+  setupAddStopConfirmationModal();
+  await loadRequestHeaderProduct();
   setupDateTimeInput();
   setupMyLocationButton();
   setupFormSubmission();

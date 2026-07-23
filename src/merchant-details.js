@@ -361,8 +361,8 @@ const generatePaymentLink = async (accountId, productId, priceId, buttonEl) => {
   const relatedPrices = [{ id: priceId, quantity: 1 }];
   const paymentLinkCallable = httpsCallable(functions, 'getPaymentLink');
   const paymentLinkResult = await paymentLinkCallable({ accountId, productId, prices: relatedPrices });
-  productLinkUrl = paymentLinkResult.data?.url || null;
-
+  const productLinkUrl = paymentLinkResult.data?.paymentLink?.url || null;
+  
   const previousText = buttonEl?.textContent || 'Updating...';
 
   if (buttonEl) {

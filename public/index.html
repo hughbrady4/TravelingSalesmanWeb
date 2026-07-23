@@ -144,6 +144,9 @@
           <li class="nav-item">
             <a class="nav-link" href="merchant-details.html">Merchant Details</a>
           </li>
+          <li class="nav-item">
+            <a class="nav-link" href="request-history.html" id="requestHistoryLink">Request History</a>
+          </li>
         </ul>
       </div>
     </div>
@@ -151,8 +154,13 @@
 
   <main class="container">
     <section class="mb-4">
-      <h1 class="h3 mb-2">Available products and services</h1>
-      <p class="text-body-secondary mb-0">Browse mobile products and services from nearby vendors.</p>
+      <div class="d-flex justify-content-between align-items-center gap-3 mb-3">
+        <div>
+          <h1 class="h3 mb-2">Available products and services</h1>
+          <p class="text-body-secondary mb-0">Browse mobile products and services from nearby vendors.</p>
+        </div>
+        <div id="myLocationControlContainer"></div>
+      </div>
     </section>
     <div id="productCards" class="row g-4" aria-label="Product cards"></div>
 

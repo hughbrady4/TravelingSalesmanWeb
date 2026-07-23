@@ -1,6 +1,6 @@
 import {initializeApp} from "firebase/app";
 import {connectAuthEmulator, getAuth, onAuthStateChanged} from "firebase/auth";
-import {connectFirestoreEmulator, doc, getDoc, getFirestore, onSnapshot} from "firebase/firestore";
+import {connectFirestoreEmulator, doc, getDoc, setDoc, getFirestore, onSnapshot} from "firebase/firestore";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -24,23 +24,25 @@ if (__USE_AUTH_EMULATOR__) {
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
 }
 
-const requestId = new URLSearchParams(window.location.search).get("requestId") || "";
+const searchParams = new URLSearchParams(window.location.search);
+const requestId = searchParams.get("requestId") || "";
+const requestPaidParam = searchParams.get("paid");
 
 const loadingState = document.getElementById("loading-state");
 const errorState = document.getElementById("error-state");
 const detailState = document.getElementById("detail-state");
 const statusValue = document.getElementById("request-status");
-const paymentContainer = document.getElementById("payment-url-container");
-const paymentUrlLink = document.getElementById("payment-url");
-const requestIdValue = document.getElementById("request-id");
-const requestUserValue = document.getElementById("request-user");
+const completePaymentButton = document.getElementById("complete_payment");
+const cancelRequestButton = document.getElementById("cancel_request");
+const contactMerchantButton = document.getElementById("contact_merchant");
+const requestMerchantValue = document.getElementById("request-merchant");
+const requestEmailValue = document.getElementById("request-email");
 const scheduleValue = document.getElementById("request-schedule");
 const distanceValue = document.getElementById("request-distance");
 const durationValue = document.getElementById("request-duration");
 const pickupValue = document.getElementById("request-pickup");
 const dropoffValue = document.getElementById("request-dropoff");
 const routeStopsTable = document.getElementById("route-stops-table");
-const rawRequest = document.getElementById("raw-request");
 
 function formatTimestamp(value) {
   if (!value) {
@@ -104,9 +106,10 @@ function renderRouteStops(stops) {
 }
 
 function renderRequestData(id, data) {
-  requestIdValue.textContent = id;
-  requestUserValue.textContent = String(data?.user || "-");
-  statusValue.textContent = String(data?.status || "unknown");
+  requestMerchantValue.textContent = String(data?.merchantDisplayName || "-");
+  requestEmailValue.textContent = String(data?.merchantEmail || data?.merchantContactEmail || "-");
+  const paidLabel = data?.paid === true ? "paid" : "unpaid";
+  statusValue.textContent = `${String(data?.status || "unknown")} (${paidLabel})`;
   scheduleValue.textContent = formatSchedule(data?.schedule);
   distanceValue.textContent = Number.isFinite(Number(data?.distancemiles)) ?
     `${Math.round(Number(data.distancemiles))} miles` :
@@ -117,13 +120,34 @@ function renderRequestData(id, data) {
   pickupValue.textContent = String(data?.pickupAddress || data?.A?.address || "-");
   dropoffValue.textContent = String(data?.dropoffAddress || data?.B?.address || "-");
 
-  const paymentUrl = data?.paymentLink || data?.checkoutUrl || "";
-  if (paymentUrl) {
-    paymentUrlLink.href = paymentUrl;
-    paymentUrlLink.textContent = paymentUrl;
-    paymentContainer.classList.remove("d-none");
-  } else {
-    paymentContainer.classList.add("d-none");
+  const checkoutUrl = String(data?.sessionUrl || data?.checkoutSessionUrl || data?.paymentLink || "").trim();
+  if (completePaymentButton) {
+    if (checkoutUrl) {
+      completePaymentButton.setAttribute("href", checkoutUrl);
+      completePaymentButton.setAttribute("target", "_blank");
+      completePaymentButton.setAttribute("rel", "noopener noreferrer");
+      completePaymentButton.classList.remove("disabled");
+      completePaymentButton.removeAttribute("aria-disabled");
+      completePaymentButton.removeAttribute("title");
+    } else {
+      completePaymentButton.removeAttribute("href");
+      completePaymentButton.removeAttribute("target");
+      completePaymentButton.removeAttribute("rel");
+      completePaymentButton.classList.add("disabled");
+      completePaymentButton.setAttribute("aria-disabled", "true");
+      completePaymentButton.setAttribute("title", "Checkout session not available yet");
+    }
+  }
+
+  if (cancelRequestButton) {
+
+  }
+
+  if (contactMerchantButton) {
+
+      contactMerchantButton.setAttribute("href", "/contact");
+
+
   }
 
   renderRouteStops(data?.routeStops);
@@ -133,7 +157,6 @@ function renderRequestData(id, data) {
     createdTS: formatTimestamp(data?.createdTS),
     updatedTS: formatTimestamp(data?.updatedTS),
   };
-  rawRequest.textContent = JSON.stringify(printable, null, 2);
 
   loadingState.classList.add("d-none");
   errorState.classList.add("d-none");
@@ -150,13 +173,16 @@ function showError(message) {
 if (!requestId) {
   showError("Missing requestId. Open this page with ?requestId=<id>.");
 } else {
+  const requestRef = doc(db, "requests", requestId);
+  if (requestPaidParam === "true" || requestPaidParam === "false") {
+    await setDoc(requestRef, {paid: requestPaidParam === "true"}, {merge: true});
+  }
   onAuthStateChanged(auth, async (user) => {
     if (!user) {
       showError("You must be signed in to view request details.");
       return;
     }
 
-    const requestRef = doc(db, "requests", requestId);
     const snapshot = await getDoc(requestRef);
 
     if (!snapshot.exists()) {
@@ -165,10 +191,10 @@ if (!requestId) {
     }
 
     const initialData = snapshot.data() || {};
-    if (initialData.user && initialData.user !== user.uid) {
-      showError("You do not have access to this request.");
-      return;
-    }
+    // if (initialData.user && initialData.user !== user.uid) {
+    //   showError("You do not have access to this request.");
+    //   return;
+    // }
 
     renderRequestData(snapshot.id, initialData);
 

@@ -80,9 +80,15 @@
 <body>
   <main class="request-shell">
     <section class="card request-card">
-      <header class="card-header">
-        <h1 class="h4 mb-1">Ride Request</h1>
-        <p class="mb-0 opacity-75">Choose your schedule and build your route stops.</p>
+      <header class="card-header details-header py-3 px-4 d-flex justify-content-between align-items-center">
+        <div>
+          <h1 id="request-product-name" class="h4 mb-1">Ride Request</h1>
+          <p id="request-product-description" class="mb-0 opacity-75">Choose your schedule and build your route stops.</p>
+          <p class="mb-0 mt-1"><small class="opacity-75">Account: <span id="request-account-display-name">Unknown account</span></small></p>
+        </div>
+        <div>
+          <a id="contact_merchant" class="btn btn-light btn-sm">Contact</a>
+        </div>
       </header>
       <div class="card-body p-4">
         <form id="ride-request-form" novalidate>
@@ -100,7 +106,7 @@
             </div>
 
             <div class="col-md-8">
-              <label class="form-label">Add Stop with Google PlaceAutocomplete</label>
+              <label class="form-label">Add pickup and stop locations</label>
               <div id="place-autocomplete-widget"></div>
             </div>
             <div class="col-md-4 d-flex align-items-end">
@@ -110,11 +116,6 @@
             <div class="col-12">
               <h2 class="h6 mb-2">Current Route</h2>
               <ul id="route-list" class="list-group"></ul>
-            </div>
-
-            <div class="col-12">
-              <label for="route-data" class="form-label">Route Data Preview</label>
-              <textarea id="route-data" class="form-control route-data" readonly aria-label="Route data preview"></textarea>
             </div>
 
             <div class="col-12 d-flex justify-content-between align-items-center mt-3">
@@ -130,6 +131,26 @@
       </div>
     </section>
   </main>
+
+  <div class="modal fade" id="add-stop-confirmation-modal" tabindex="-1" aria-labelledby="add-stop-confirmation-title" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title fs-5" id="add-stop-confirmation-title">Add location to route?</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-1"><strong id="confirm-stop-label">Selected location</strong></p>
+          <p class="mb-0 text-muted" id="confirm-stop-address">Address will appear here.</p>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Cancel</button>
+          <button type="button" class="btn btn-primary" id="confirm-add-stop-button">Add to Route</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>

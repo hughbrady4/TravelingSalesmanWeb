@@ -1195,10 +1195,27 @@ async function createRequestPricing(requestId) {
     stripeAccount: data.accountId,
   });
 
-  await requestRef.set({sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
+  const paymentLink = await stripe.paymentLinks.create({
+    line_items: lineItems,
+    phone_number_collection: {
+      enabled: true,
+    },
+    after_completion: {
+      type: "redirect",
+      redirect: {
+        url: successUrl,
+      },
+    },
+  }, {
+    stripeAccount: data.accountId,
+  });
+
+  await requestRef.set({paymentLink: paymentLink.url, sessionUrl: session.url, checkoutSessionId: session.id}, {merge: true});
+  log(`Payment link created for request ${normalizedRequestId}: ${paymentLink.url}`);
 
   return {
     requestId: normalizedRequestId,
+    paymentLink: paymentLink.url,
     sessionUrl: session.url,
     checkoutSessionId: session.id,
   };
