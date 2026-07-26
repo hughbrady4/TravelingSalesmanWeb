@@ -1,8 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics, logEvent } from 'firebase/analytics';
 import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
-import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, where } from 'firebase/firestore';
+import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
+import * as geofire from 'geofire-common';
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
   authDomain: "osweb-140a8.firebaseapp.com",
@@ -92,6 +93,10 @@ const ensureAuthenticatedUser = async () => {
 const updateUserLocationRecord = async (position) => {
   const user = await ensureAuthenticatedUser();
 
+  const lat = position.lat;
+  const lng = position.lng;
+  const hash = geofire.geohashForLocation([lat, lng]);
+
   const userRef = doc(db, 'users', user.uid);
   await setDoc(
     userRef,
@@ -100,6 +105,7 @@ const updateUserLocationRecord = async (position) => {
         lat: position.lat,
         lng: position.lng,
       },
+      geohash: hash,
       isAnonymous: user.isAnonymous,
       locationUpdatedAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -260,7 +266,7 @@ function renderProductCards() {
   }
 
   cardsEl.innerHTML = products.map((productData) => {
-    const relatedPrices = priceDocsByProductId.get(productData.id) || [];
+    // const relatedPrices = priceDocsByProductId.get(productData.id) || [];
     const productUrl = typeof productData.url === 'string' ? productData.url.trim() : '';
     const accountId = typeof productData.accountId === 'string' ? productData.accountId.trim() : '';
     const productId = typeof productData.id === 'string' ? productData.id.trim() : '';
@@ -288,6 +294,7 @@ function renderProductCards() {
               <span class="badge text-bg-light">${status}</span>
             </div>
             <p class="card-text text-body-secondary flex-grow-1">${escapeHtml(description)}</p>
+            <p class="card-text text-body-secondary mb-0"><small>Distance: ${productData.distanceInMiles ? productData.distanceInMiles.toFixed(2) : 'N/A'} miles</small></p>
             <a class="btn btn-primary mt-2${productLinkUrl ? '' : ' disabled'}" href="${productLinkUrl ? escapeHtml(productLinkUrl) : '#'}"${productLinkUrl ? '' : ' tabindex="-1" aria-disabled="true"'}>
               Request
             </a>
@@ -313,12 +320,11 @@ const initializeProductPriceData = () => {
     where('online', '==', true),
   );
 
-  const pricesQuery = query(
-    collection(db, 'prices'),
-    where('active', '==', true),
+  // const pricesQuery = query(
+  //   collection(db, 'prices'),
+  //   where('active', '==', true),
 
-
-  );
+  // );
 
   productsUnsubscribe = onSnapshot(
     productsQuery,
@@ -339,33 +345,34 @@ const initializeProductPriceData = () => {
     },
   );
 
-  pricesUnsubscribe = onSnapshot(
-    pricesQuery,
-    (snapshot) => {
-      priceDocsByProductId.clear();
-      snapshot.docs.forEach((priceDoc) => {
-        const priceData = priceDoc.data();
-        if (!priceData.product) {
-          return;
-        }
+  // pricesUnsubscribe = onSnapshot(
+  //   pricesQuery,
+  //   (snapshot) => {
+  //     priceDocsByProductId.clear();
+  //     snapshot.docs.forEach((priceDoc) => {
+  //       const priceData = priceDoc.data();
+  //       if (!priceData.product) {
+  //         return;
+  //       }
 
-        if (!priceDocsByProductId.has(priceData.product)) {
-          priceDocsByProductId.set(priceData.product, []);
-        }
+  //       if (!priceDocsByProductId.has(priceData.product)) {
+  //         priceDocsByProductId.set(priceData.product, []);
+  //       }
 
-        priceDocsByProductId.get(priceData.product).push({
-          id: priceDoc.id,
-          ...priceData,
-        });
-      });
-      renderProductCards();
+  //       priceDocsByProductId.get(priceData.product).push({
+  //         id: priceDoc.id,
+  //         ...priceData,
+  //       });
+  //     });
+  //     renderProductCards();
 
-    },
-    (error) => {
-      console.error('Unable to subscribe to stripe prices:', error);
-      closeProductPriceData();
-    },
-  );
+  //   },
+  //   (error) => {
+  //     console.error('Unable to subscribe to stripe prices:', error);
+  //     closeProductPriceData();
+  //   },
+  // );
+
 };
 
 const isValidLocation = (location) => {
@@ -498,6 +505,7 @@ const createMyLocationControl = () => {
 
         try {
           await updateUserLocationRecord(userPosition);
+          geoQueryProducts(userPosition, 10000);
         } catch (error) {
           console.error('Unable to update user location record:', error);
           safeLogEvent('home_location_firestore_error', { message: error.message || 'unknown' });
@@ -626,6 +634,56 @@ const createPlaceSearchControl = () => {
 
   return controlCard;
 };
+
+const geoQueryProducts = async(pos, radiusInMeters = 10000) => {
+  const lat = pos.lat;
+  const lng = pos.lng;
+  const center = [lat, lng];
+
+  const bounds = geofire.geohashQueryBounds(center, radiusInMeters);
+  console.log('GeoQuery bounds:', bounds);
+  const promises = [];
+  for (const b of bounds) {
+    const q = query(
+      collection(db, 'products'),
+      where('online', '==', true), 
+      orderBy('geohash'), 
+      startAt(b[0]), 
+      endAt(b[1]));
+
+    promises.push(getDocs(q));
+  }
+
+  // Collect all the query results together into a single list
+  const snapshots = await Promise.all(promises);
+
+  productDocsById.clear();
+  const matchingDocs = [];
+  for (const snap of snapshots) {
+    for (const doc of snap.docs) {
+      const lat = doc.get('lat');
+      const lng = doc.get('lng');
+
+      // We have to filter out a few false positives due to GeoHash
+      // accuracy, but most will match
+      // @ts-ignore
+      const distanceInKm = geofire.distanceBetween([lat, lng], center);
+      const distanceInM = distanceInKm * 1000;
+      console.log(`Product ${doc.id} is ${distanceInM.toFixed(2)} meters away from the center.`);
+      if (distanceInM <= radiusInMeters) {
+        const distanceInMiles = distanceInM / 1609.34;
+        matchingDocs.push(doc);
+        productDocsById.set(doc.id, {
+          id: doc.id,
+          ...doc.data(),
+          distanceInMiles,
+        });
+      }
+    }
+  }
+  renderProductCards();
+
+}
 
 window.addEventListener('DOMContentLoaded', () => {
   addDisclaimerAlert();

@@ -19,6 +19,7 @@ import {defineSecret} from "firebase-functions/params";
 
 import {onCall, HttpsError, onRequest} from "firebase-functions/https";
 import {logger} from "firebase-functions";
+import * as geofire from "geofire-common";
 
 const app = initializeApp( {
   credential: applicationDefault(),
@@ -165,6 +166,12 @@ export const loadStripeData = onCall(
             ...accountData,
           };
 
+          if (accountData.metadata && accountData.metadata.geo_lat && accountData.metadata.geo_lng) {
+            const lat = parseFloat(accountData.metadata.geo_lat);
+            const lng = parseFloat(accountData.metadata.geo_lng);
+            const hash = geofire.geohashForLocation([lat, lng]);
+            merchantData.geohash = hash;
+          }
           await db.collection("merchants").doc(account.id).set(merchantData, {merge: true});
         }
 
@@ -190,6 +197,14 @@ export const loadStripeData = onCall(
           const userId = product.metadata?.tsp_uid || "unknown";
           if (userId && userId !== "unknown") {
             product.userId = userId;
+          }
+          if (product.metadata && product.metadata.geo_lat && product.metadata.geo_lng) {
+            const lat = parseFloat(product.metadata.geo_lat);
+            const lng = parseFloat(product.metadata.geo_lng);
+            const hash = geofire.geohashForLocation([lat, lng]);
+            product.geohash = hash;
+            product.lat = lat;
+            product.lng = lng;
           }
           await db.collection("products").doc(product.id).set(product, {merge: true});
         }
@@ -520,7 +535,11 @@ export const updateProduct = onCall(
         updatedProduct.geoCoordinates = geoCoordinates;
       }
 
-      await db.collection("stripeProducts").doc(updatedProduct.id).set(updatedProduct, {merge: true});
+      updatedProduct.geohash = geofire.geohashForLocation([updatedProduct.geoCoordinates?.lat, updatedProduct.geoCoordinates?.lng]);
+      updatedProduct.lat = updatedProduct.geoCoordinates?.lat;
+      updatedProduct.lng = updatedProduct.geoCoordinates?.lng;
+
+      await db.collection("products").doc(updatedProduct.id).set(updatedProduct, {merge: true});
 
       return {product: updatedProduct};
     });
