@@ -35,6 +35,8 @@ const messaging = getMessaging();
 
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const endpointSecret = defineSecret("STRIPE_ENDPOINT_SECRET");
+const endpointSecretCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CHECKOUT_HOOK");
+
 const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
 
 
@@ -1381,14 +1383,14 @@ export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE
     },
 );
 
-export const checkoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
+export const checkoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET_CHECKOUT_HOOK"]},
     (request, response) => {
       let event = request.body;
 
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
 
-      const endpointSecretKey = endpointSecret.value();
+      const endpointSecretKey = endpointSecretCheckoutHook.value();
 
       // Only verify the event if you have an endpoint secret defined.
       // Otherwise use the basic event deserialized with JSON.parse
