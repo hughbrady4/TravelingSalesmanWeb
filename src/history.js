@@ -197,7 +197,11 @@ function subscribeToRequests(user) {
 
     showLoading("Loading your ride requests...");
 
-    const q = query(collection(db, "requests"), where("user", "==", user.uid));
+    const q = query(
+        collection(db, "requests"),
+        where("user", "==", user.uid),
+        where("status", "!=", "deleted"),
+    );
     requestsUnsubscribe = onSnapshot(q, (querySnapshot) => {
         renderRequests(querySnapshot);
     }, (error) => {

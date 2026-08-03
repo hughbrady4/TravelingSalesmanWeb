@@ -36,6 +36,7 @@ const messaging = getMessaging();
 const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const endpointSecret = defineSecret("STRIPE_ENDPOINT_SECRET");
 const endpointSecretCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CHECKOUT_HOOK");
+const endpointSecretConnectCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CONNECT_CHECKOUT_HOOK");
 
 const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
 
@@ -995,6 +996,60 @@ export const computeRouteEstimate = onCall(
     },
 );
 
+export const updateRequestStatus = onCall(async (request) => {
+  if (!request.auth || !request.auth.uid) {
+    throw new HttpsError("unauthenticated", "You must be signed in to cancel a request.");
+  }
+
+  const requestId = request.data.requestId;
+  if (!requestId) {
+    throw new HttpsError("invalid-argument", "The function must be called with a requestId.");
+  }
+
+  const action = request.data.action;
+  if (!action || typeof action !== "string") {
+    throw new HttpsError("invalid-argument", "The function must be called with a valid action string.");
+  }
+
+  const actionToStatus = {
+    accept: "accepted",
+    deny: "denied",
+    complete: "completed",
+    cancel: "cancelled",
+    delete: "deleted",
+  };
+
+  const nextStatus = actionToStatus[action];
+  if (!nextStatus) {
+    throw new HttpsError("invalid-argument", "The function must be called with a valid action.");
+  }
+
+  const explanation = request.data.explanation || null;
+
+  const requestRef = db.collection("requests").doc(requestId);
+  const requestDoc = await requestRef.get();
+
+  if (!requestDoc.exists) {
+    throw new HttpsError("not-found", `No request found with ID: ${requestId}`);
+  }
+
+  await requestDoc.ref.collection("statusHistory").add({
+    status: nextStatus,
+    explanation: explanation,
+    updatedBy: request.auth.uid,
+    updatedTS: new Date(),
+  });
+
+  await requestDoc.ref.update({
+    status: nextStatus,
+    updatedTS: new Date(),
+  });
+
+  log(`Request ${requestId} updated to status ${nextStatus} by user ${request.auth.uid}`);
+
+  return {requestId, status: nextStatus, explanation};
+});
+
 export const createRequest =
   onDocumentCreated({document: "requests/{requestId}", database: firestoreDatabase}, async (event) => {
     const request = event.params.requestId;
@@ -1391,6 +1446,54 @@ export const checkoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "S
       const stripe = new Stripe(secretKey);
 
       const endpointSecretKey = endpointSecretCheckoutHook.value();
+
+      // Only verify the event if you have an endpoint secret defined.
+      // Otherwise use the basic event deserialized with JSON.parse
+      if (endpointSecretKey) {
+        // Get the signature sent by Stripe
+        const signature = request.headers["stripe-signature"];
+        try {
+          event = stripe.webhooks.constructEvent(
+              request.rawBody,
+              signature,
+              endpointSecretKey,
+          );
+        } catch (err) {
+          log(`⚠️  Webhook signature verification failed.`, err.message);
+          return response.sendStatus(400);
+        }
+      } else {
+        event = JSON.parse(request.body);
+      }
+
+      // Handle the event
+      let session;
+      let status;
+      switch (event.type) {
+        case "checkout.session.completed":
+          session = event.data.object;
+          status = session.payment_status;
+          log(`Checkout session completed for session ID: ${session.id} with payment status: ${status}`);
+          // Then define and call a method to handle the successful checkout session.
+          // handleCheckoutSessionCompleted(session);
+          break;
+        default:
+          // Unexpected event type
+          log(`Unhandled event type ${event.type}.`);
+      }
+
+      response.status(200).send();
+    },
+);
+
+export const connectCheckoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET_CONNECT_CHECKOUT_HOOK"]},
+    (request, response) => {
+      let event = request.body;
+
+      const secretKey = stripeSecret.value();
+      const stripe = new Stripe(secretKey);
+
+      const endpointSecretKey = endpointSecretConnectCheckoutHook.value();
 
       // Only verify the event if you have an endpoint secret defined.
       // Otherwise use the basic event deserialized with JSON.parse
