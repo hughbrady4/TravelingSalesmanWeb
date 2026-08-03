@@ -2,6 +2,8 @@
 
 Web application and Firebase backend for the Traveling Salesman project.
 
+Traveling Salesman allows merchant users to onboard to their own connected Stripe merchant account, then create products and prices that contain geo location data. The landing page presents a list of cards containing merchant's products that are currently online and current distance from the customer user's location. The list is populated, filtered and sorted via a geo query centered on the customer user's location provided by either IP, browser or Google places autocomplete functionality. Customer users may click on nearby product cards to request services. Request links are dynamically associated with Stripe products in order to provide merchants maximum flexibility in the type of services offered and linked pages can easily navigate to Stripe checkout sessions and payment links. Services may include anything from livery, currier, dog grooming, automotive, healthcare and more. 
+
 ## Tech Stack
 
 - Frontend: Vanilla JavaScript + Webpack + Bootstrap
