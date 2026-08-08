@@ -33,14 +33,19 @@ if (__USE_AUTH_EMULATOR__) {
 }
 
 let pendingSavedLocation;
-let placeSearchRequest;
+let placeAutocompleteControl;
 let pendingPlaceSearchBias;
 let productsUnsubscribe;
 let pricesUnsubscribe;
+let userLocationUnsubscribe;
 
 const productDocsById = new Map();
 const priceDocsByProductId = new Map();
 const productCardsEl = document.getElementById('productCards');
+const HOME_LOCATION_STORAGE_KEY = 'homeUserLocation';
+const GOOGLE_GEOLOCATION_API_KEY = 'AIzaSyCEcOgUj5wuOF5ADTJuPQHMmURyLIAE4J0';
+const GOOGLE_GEOLOCATION_ENDPOINT = 'https://www.googleapis.com/geolocation/v1/geolocate';
+const GOOGLE_GEOCODING_ENDPOINT = 'https://maps.googleapis.com/maps/api/geocode/json';
 
 const LOCATION_MARKER_ICON = {
   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#0d6efd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>'),
@@ -90,12 +95,108 @@ const ensureAuthenticatedUser = async () => {
   return user;
 };
 
+const normalizeWifiAccessPoints = (wifiAccessPoints) => {
+  if (!Array.isArray(wifiAccessPoints)) {
+    return [];
+  }
+
+  return wifiAccessPoints
+    .map((entry) => {
+      const macAddress = typeof entry?.macAddress === 'string' ? entry.macAddress.trim().toLowerCase() : '';
+      if (!/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/.test(macAddress)) {
+        return null;
+      }
+
+      const normalized = { macAddress };
+
+      if (Number.isFinite(entry.signalStrength)) {
+        normalized.signalStrength = entry.signalStrength;
+      }
+
+      if (Number.isFinite(entry.signalToNoiseRatio)) {
+        normalized.signalToNoiseRatio = entry.signalToNoiseRatio;
+      }
+
+      return normalized;
+    })
+    .filter(Boolean);
+};
+
+const getRuntimeWifiAccessPoints = async () => {
+  try {
+    const providerFn = typeof window.getWifiAccessPoints === 'function'
+      ? window.getWifiAccessPoints
+      : null;
+
+    const providedPoints = providerFn
+      ? await providerFn()
+      : window.__WIFI_ACCESS_POINTS__;
+
+    return normalizeWifiAccessPoints(providedPoints);
+  } catch (error) {
+    console.error('Unable to retrieve runtime Wi-Fi access points:', error);
+    safeLogEvent('home_wifi_access_point_load_error', { message: error.message || 'unknown' });
+    return [];
+  }
+};
+
+const buildGoogleGeolocationRequest = async () => {
+  const wifiAccessPoints = await getRuntimeWifiAccessPoints();
+
+  if (wifiAccessPoints.length > 0) {
+    return {
+      considerIp: false,
+      wifiAccessPoints,
+    };
+  }
+
+  // Browser JS cannot directly read nearby APs; fall back to IP-based lookup.
+  return {
+    considerIp: true,
+  };
+};
+
+const reverseGeocodeLocation = async (location) => {
+  if (!location || !Number.isFinite(location.lat) || !Number.isFinite(location.lng)) {
+    throw new Error('Cannot reverse geocode invalid coordinates');
+  }
+
+  const endpointUrl = new URL(GOOGLE_GEOCODING_ENDPOINT);
+  endpointUrl.searchParams.set('latlng', `${location.lat},${location.lng}`);
+  endpointUrl.searchParams.set('key', GOOGLE_GEOLOCATION_API_KEY);
+
+  const response = await fetch(endpointUrl.toString());
+  if (!response.ok) {
+    throw new Error(`Google Geocoding API failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  if (payload.status !== 'OK' || !Array.isArray(payload.results) || payload.results.length === 0) {
+    throw new Error(`Google Geocoding API returned status ${payload.status || 'UNKNOWN'}`);
+  }
+
+  const formattedAddress = payload.results[0]?.formatted_address;
+  if (typeof formattedAddress !== 'string' || formattedAddress.trim() === '') {
+    throw new Error('Google Geocoding API did not return a formatted address');
+  }
+
+  return formattedAddress;
+};
+
 const updateUserLocationRecord = async (position) => {
   const user = await ensureAuthenticatedUser();
 
   const lat = position.lat;
   const lng = position.lng;
   const hash = geofire.geohashForLocation([lat, lng]);
+
+  let formattedAddress;
+  try {
+    formattedAddress = await reverseGeocodeLocation(position);
+  } catch (error) {
+    console.error('Unable to reverse geocode user location:', error);
+    safeLogEvent('home_reverse_geocode_error', { message: error.message || 'unknown' });
+  }
 
   const userRef = doc(db, 'users', user.uid);
   await setDoc(
@@ -108,6 +209,10 @@ const updateUserLocationRecord = async (position) => {
       geohash: hash,
       isAnonymous: user.isAnonymous,
       locationUpdatedAt: serverTimestamp(),
+      ...(formattedAddress ? {
+        formattedAddress,
+        formattedAddressUpdatedAt: serverTimestamp(),
+      } : {}),
       updatedAt: serverTimestamp(),
     },
     { merge: true },
@@ -195,6 +300,88 @@ const parseGeoLocation = (value) => {
   }
 
   return null;
+};
+
+const readStoredHomeLocation = () => {
+  try {
+    const value = window.localStorage.getItem(HOME_LOCATION_STORAGE_KEY);
+    if (!value) {
+      return null;
+    }
+
+    const parsed = JSON.parse(value);
+    const location = parseGeoLocation(parsed);
+    if (!location) {
+      window.localStorage.removeItem(HOME_LOCATION_STORAGE_KEY);
+      return null;
+    }
+
+    return location;
+  } catch (error) {
+    console.error('Unable to read stored home location:', error);
+    return null;
+  }
+};
+
+const storeHomeLocation = (location) => {
+  if (!isValidLocation(location)) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(HOME_LOCATION_STORAGE_KEY, JSON.stringify(location));
+  } catch (error) {
+    console.error('Unable to store home location:', error);
+  }
+};
+
+const fetchGoogleGeolocation = async () => {
+  const endpointUrl = `${GOOGLE_GEOLOCATION_ENDPOINT}?key=${encodeURIComponent(GOOGLE_GEOLOCATION_API_KEY)}`;
+  const geolocationRequest = await buildGoogleGeolocationRequest();
+  const response = await fetch(endpointUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(geolocationRequest),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Google Geolocation API failed with status ${response.status}`);
+  }
+
+  const payload = await response.json();
+  const location = parseGeoLocation(payload.location);
+  if (!location) {
+    throw new Error('Google Geolocation API returned an invalid location');
+  }
+
+  return location;
+};
+
+const saveAndApplyHomeLocation = async (location) => {
+  if (!isValidLocation(location)) {
+    throw new Error('Cannot save invalid home location');
+  }
+
+  storeHomeLocation(location);
+  applyStoredLocation(location);
+  await updateUserLocationRecord(location);
+  await geoQueryProducts(location, 10000);
+};
+
+const hydrateHomeLocationFromGoogleGeolocation = async () => {
+  try {
+    const location = await fetchGoogleGeolocation();
+    await saveAndApplyHomeLocation(location);
+    safeLogEvent('home_location_found', { source: 'google_geolocation_api_page_load' });
+  } catch (error) {
+    console.error('Unable to hydrate home location from Google Geolocation API:', error);
+    safeLogEvent('home_location_error', {
+      source: 'google_geolocation_api_page_load',
+      message: error.message || 'unknown',
+    });
+  }
 };
 
 const escapeHtml = (value) => String(value)
@@ -384,8 +571,8 @@ const applyStoredLocation = (location) => {
     return;
   }
 
-  if (placeSearchRequest) {
-    placeSearchRequest.locationBias = location;
+  if (placeAutocompleteControl && 'locationBias' in placeAutocompleteControl) {
+    placeAutocompleteControl.locationBias = location;
   } else {
     pendingPlaceSearchBias = location;
   }
@@ -405,6 +592,88 @@ const getLatLngFromPlaceLocation = (location) => {
   }
 
   return { lat, lng };
+};
+
+const ensureCurrentLocationBanner = () => {
+  const existingBanner = document.getElementById('currentLocationBanner');
+  if (existingBanner) {
+    return existingBanner;
+  }
+
+  const productCardsContainer = document.getElementById('productCards');
+  if (!productCardsContainer || !productCardsContainer.parentElement) {
+    return null;
+  }
+
+  const banner = document.createElement('div');
+  banner.id = 'currentLocationBanner';
+  banner.className = 'alert alert-light border mb-3';
+  banner.textContent = 'Current location: unavailable';
+
+  productCardsContainer.parentElement.insertBefore(banner, productCardsContainer);
+  return banner;
+};
+
+const renderCurrentLocationBanner = (location, formattedAddress) => {
+  const banner = ensureCurrentLocationBanner();
+  if (!banner) {
+    return;
+  }
+
+  if (!isValidLocation(location)) {
+    banner.textContent = 'Current location: unavailable';
+    return;
+  }
+
+  const latLabel = location.lat.toFixed(6);
+  const lngLabel = location.lng.toFixed(6);
+  const addressLabel = typeof formattedAddress === 'string' ? formattedAddress.trim() : '';
+
+  banner.textContent = addressLabel
+    ? `Current location: ${addressLabel} (${latLabel}, ${lngLabel})`
+    : `Current location: ${latLabel}, ${lngLabel}`;
+};
+
+const startUserLocationListener = async () => {
+  if (userLocationUnsubscribe) {
+    userLocationUnsubscribe();
+    userLocationUnsubscribe = undefined;
+  }
+
+  const user = await ensureAuthenticatedUser();
+  const userRef = doc(db, 'users', user.uid);
+
+  userLocationUnsubscribe = onSnapshot(
+    userRef,
+    (snapshot) => {
+      if (!snapshot.exists()) {
+        renderCurrentLocationBanner(null, null);
+        return;
+      }
+
+      const userData = snapshot.data();
+      const location = parseGeoLocation(userData.location);
+      const formattedAddress = typeof userData.formattedAddress === 'string'
+        ? userData.formattedAddress
+        : null;
+
+      renderCurrentLocationBanner(location, formattedAddress);
+
+      if (!isValidLocation(location)) {
+        return;
+      }
+
+      applyStoredLocation(location);
+      storeHomeLocation(location);
+      geoQueryProducts(location, 10000).catch((error) => {
+        console.error('Unable to load products from user location listener:', error);
+      });
+    },
+    (error) => {
+      console.error('Unable to subscribe to user location changes:', error);
+      safeLogEvent('home_user_location_listener_error', { message: error.message || 'unknown' });
+    },
+  );
 };
 
 const loadUserHomeState = async () => {
@@ -447,7 +716,13 @@ const loadUserHomeState = async () => {
       }
     }
 
-    applyStoredLocation(userData.location);
+    const location = parseGeoLocation(userData.location);
+    if (!location) {
+      return;
+    }
+
+    applyStoredLocation(location);
+    storeHomeLocation(location);
   } catch (error) {
     console.error('Unable to load user home state:', error);
     safeLogEvent('home_state_load_error', { message: error.message || 'unknown' });
@@ -502,22 +777,20 @@ const createMyLocationControl = () => {
           lng: pos.coords.longitude,
         };
 
-
         try {
-          await updateUserLocationRecord(userPosition);
-          geoQueryProducts(userPosition, 10000);
+          await saveAndApplyHomeLocation(userPosition);
         } catch (error) {
           console.error('Unable to update user location record:', error);
           safeLogEvent('home_location_firestore_error', { message: error.message || 'unknown' });
         }
 
-        safeLogEvent('home_location_found');
+        safeLogEvent('home_location_found', { source: 'browser_geolocation' });
         button.disabled = false;
         setLocationButtonIdleState();
       },
       (error) => {
         console.error('Unable to retrieve location:', error);
-        safeLogEvent('home_location_error', { code: error.code });
+        safeLogEvent('home_location_error', { code: error.code, source: 'browser_geolocation' });
         alert('Unable to get your location. Please allow location access and try again.');
         button.disabled = false;
         setLocationButtonIdleState();
@@ -538,99 +811,51 @@ const createPlaceSearchControl = () => {
   controlCard.style.backgroundColor = 'white';
   controlCard.style.borderRadius = '8px';
   controlCard.style.boxShadow = '0 2px 6px rgba(0, 0, 0, 0.3)';
-  controlCard.style.margin = '10px';
-  controlCard.style.padding = '10px';
-  controlCard.style.maxWidth = '340px';
-  controlCard.style.minWidth = '280px';
+  // controlCard.style.margin = '10px';
+  // controlCard.style.padding = '10px';
+  // controlCard.style.maxWidth = '340px';
+  // controlCard.style.minWidth = '280px';
 
-  const searchRow = document.createElement('div');
-  searchRow.style.display = 'flex';
-  searchRow.style.gap = '8px';
-  searchRow.style.marginBottom = '8px';
+  const placeAutocomplete = new google.maps.places.PlaceAutocompleteElement();
+  placeAutocomplete.placeholder = 'Type an address or place name';
+  placeAutocomplete.setAttribute('aria-label', 'Search for a place');
+  placeAutocomplete.style.width = '100%';
 
-  const queryInput = document.createElement('input');
-  queryInput.type = 'text';
-  queryInput.placeholder = 'Search nearby places';
-  queryInput.value = 'cafe';
-  queryInput.className = 'form-control form-control-sm';
-  queryInput.setAttribute('aria-label', 'Search for a place');
+  placeAutocompleteControl = placeAutocomplete;
 
-  const searchButton = document.createElement('button');
-  searchButton.type = 'button';
-  searchButton.className = 'btn btn-sm btn-primary';
-  searchButton.textContent = 'Search';
-
-  searchRow.appendChild(queryInput);
-  searchRow.appendChild(searchButton);
-
-  const placeSearch = document.createElement('gmp-place-search');
-  placeSearch.setAttribute('selectable', '');
-  placeSearch.style.display = 'block';
-  placeSearch.style.maxHeight = '160px';
-  placeSearch.style.overflow = 'auto';
-
-  const placeAllContent = document.createElement('gmp-place-all-content');
-  const placeSearchQuery = document.createElement('gmp-place-text-search-request');
-  placeSearchQuery.setAttribute('max-result-count', '5');
-  placeSearchRequest = placeSearchQuery;
-
-  if (pendingPlaceSearchBias) {
-    placeSearchQuery.locationBias = pendingPlaceSearchBias;
+  if (pendingPlaceSearchBias && 'locationBias' in placeAutocomplete) {
+    placeAutocomplete.locationBias = pendingPlaceSearchBias;
     pendingPlaceSearchBias = undefined;
   }
 
-  placeSearch.appendChild(placeAllContent);
-  placeSearch.appendChild(placeSearchQuery);
-
-  const runPlaceSearch = () => {
-    const queryText = queryInput.value.trim();
-    if (!queryText) {
+  placeAutocomplete.addEventListener('gmp-select', async ({ placePrediction }) => {
+    if (!placePrediction) {
       return;
     }
 
-    const center = mMap?.getCenter();
-    if (center) {
-      placeSearchQuery.locationBias = center;
-    }
-
-    placeSearchQuery.textQuery = queryText;
-    safeLogEvent('home_place_search', { query: queryText });
-  };
-
-  searchButton.addEventListener('click', runPlaceSearch);
-  queryInput.addEventListener('keydown', (event) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      runPlaceSearch();
-    }
-  });
-
-  placeSearch.addEventListener('gmp-select', async (event) => {
-    const place = event.place || event.detail?.place;
-    if (!place) {
-      return;
-    }
-
-    if (!place.location && typeof place.fetchFields === 'function') {
-      await place.fetchFields({ fields: ['displayName', 'location'] });
-    }
+    const place = placePrediction.toPlace();
+    await place.fetchFields({ fields: ['id', 'displayName', 'formattedAddress', 'location'] });
 
     const selectedPosition = getLatLngFromPlaceLocation(place.location);
     if (!selectedPosition) {
       return;
     }
 
-    mMap.panTo(selectedPosition);
-    mMap.setZoom(13);
-    updateLocationMarker(selectedPosition, place.displayName || 'Selected place');
-    safeLogEvent('home_place_selected', { place_id: place.id || 'unknown' });
+    // mMap.panTo(selectedPosition);
+    // mMap.setZoom(13);
+    // updateLocationMarker(selectedPosition, place.displayName || 'Selected place');
+    await saveAndApplyHomeLocation(selectedPosition);
+    safeLogEvent('home_place_selected', {
+      place_id: place.id || 'unknown',
+      label: place.displayName || place.formattedAddress || 'unknown',
+    });
+
+    if ('value' in placeAutocomplete) {
+      placeAutocomplete.value = '';
+    }
   });
 
-  controlCard.appendChild(searchRow);
-  controlCard.appendChild(placeSearch);
-
-  // Start with a default search so the list is populated when the control first loads.
-  setTimeout(runPlaceSearch, 0);
+  controlCard.appendChild(placeAutocomplete);
 
   return controlCard;
 };
@@ -685,9 +910,19 @@ const geoQueryProducts = async(pos, radiusInMeters = 10000) => {
 
 }
 
-window.addEventListener('DOMContentLoaded', () => {
+window.addEventListener('DOMContentLoaded', async () => {
   addDisclaimerAlert();
+  ensureCurrentLocationBanner();
+  const localLocation = readStoredHomeLocation();
+  if (localLocation) {
+    renderCurrentLocationBanner(localLocation, null);
+    applyStoredLocation(localLocation);
+    geoQueryProducts(localLocation, 10000).catch((error) => {
+      console.error('Unable to load products near stored local location:', error);
+    });
+  }
   loadUserHomeState();
+  hydrateHomeLocationFromGoogleGeolocation();
 
   const getStartedBtn = document.getElementById('getStartedBtn');
   const signInLink = document.getElementById('signInLink');
@@ -732,13 +967,24 @@ window.addEventListener('DOMContentLoaded', () => {
 
   safeLogEvent('page_view', { page_location: 'home' });
 
+  try {
+    await google.maps.importLibrary('places');
+  } catch (error) {
+    console.error('Unable to load Google Maps Places library:', error);
+    safeLogEvent('home_places_library_load_error', { message: error.message || 'unknown' });
+  }
+
   const myLocationControl = createMyLocationControl();
   const myLocationControlContainer = document.getElementById('myLocationControlContainer');
   if (myLocationControlContainer) {
     myLocationControlContainer.appendChild(myLocationControl);
   }
 
-  //const placeSearchControl = createPlaceSearchControl();
+  const placeSearchControl = createPlaceSearchControl();
+  const controlCardContainer = document.getElementById('controlCardContainer');
+  if (controlCardContainer) {
+    controlCardContainer.appendChild(placeSearchControl);
+  }
 
   if (pendingSavedLocation) {
   const location = pendingSavedLocation;
@@ -746,5 +992,17 @@ window.addEventListener('DOMContentLoaded', () => {
   applyStoredLocation(location);
   }
 
+  startUserLocationListener().catch((error) => {
+    console.error('Unable to start user location listener:', error);
+    safeLogEvent('home_user_location_listener_start_error', { message: error.message || 'unknown' });
+  });
+
   initializeProductPriceData();
+});
+
+window.addEventListener('beforeunload', () => {
+  if (userLocationUnsubscribe) {
+    userLocationUnsubscribe();
+    userLocationUnsubscribe = undefined;
+  }
 });
