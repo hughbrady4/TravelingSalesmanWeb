@@ -1,4 +1,4 @@
-import { connectAuthEmulator, getAuth, isSignInWithEmailLink, signInWithEmailLink, sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut } from "firebase/auth";
+import { connectAuthEmulator, getAuth, isSignInWithEmailLink, signInWithEmailLink, sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut, linkWithCredential, EmailAuthProvider } from "firebase/auth";
 import { initializeApp } from "firebase/app";
 import { getAnalytics, logEvent } from "firebase/analytics";
 
@@ -31,11 +31,6 @@ function logAuthEvent(eventName, eventParams = {}) {
   }
 }
 
-// if the user is already signed in, we don't need to check for email link sign-in
-if (!auth.currentUser || auth.currentUser.isAnonymous) {
-  // Check if the user is signing in with an email link
-  handleEmailLinkSignIn();
-}
 
 // Get button reference
 const signOutBtn = document.getElementById('btn-signout');
@@ -47,8 +42,7 @@ signOutBtn.addEventListener('click', signOut);
 // Variable to store the countdown interval
 let countdownInterval = null;
 
-
-onAuthStateChanged(auth, (user) => {
+const handleAuthUIChange = (user) => {
   if (user && !user.isAnonymous) {
     // User is signed in, see docs for a list of available properties
     // https://firebase.google.com/docs/reference/js/firebase.User
@@ -76,6 +70,14 @@ onAuthStateChanged(auth, (user) => {
       clearInterval(countdownInterval);
       countdownInterval = null;
     }
+  }
+};
+
+onAuthStateChanged(auth, (user) => {
+  handleAuthUIChange(user);
+  // chack if the URL contains a sign-in link and handle it
+  if (!user || user.isAnonymous) {
+    handleEmailLinkSignIn();
   }
 });
 
@@ -111,38 +113,67 @@ function handleEmailLinkSignIn() {
     // the sign-in operation.
     // Get the email if available. This should be available if the user completes
     // the flow on the same device where they started it.
+    
     let email = window.localStorage.getItem('emailForSignIn');
     if (!email) {
       // User opened the link on a different device. To prevent session fixation
       // attacks, ask the user to provide the associated email again. For example:
       email = window.prompt('Please provide your email for confirmation');
     }
-    // The client SDK will parse the code from the link for you.
-    signInWithEmailLink(auth, email, window.location.href)
-      .then((result) => {
-        // Clear email from storage.
-        window.localStorage.removeItem('emailForSignIn');
-        logAuthEvent('auth_handle_link_signin_success', {
-          email: email || 'unknown'
-        });
-        // You can access the new user by importing getAdditionalUserInfo
-        // and calling it with result:
-        // getAdditionalUserInfo(result)
-        // You can access the user's profile via:
-        // getAdditionalUserInfo(result)?.profile
-        // You can check if the user is new or existing:
-        // getAdditionalUserInfo(result)?.isNewUser
-      })
-      .catch((error) => {
-        const errorCode = error.code;
-        const errorMessage = error.message;
-        logAuthEvent('auth_handle_link_signin_failed', {
-          error_code: errorCode,
-          error_message: errorMessage
-        });
-        showToast('Error', errorMessage || 'Failed to sign-in with link');
 
-      });
+    // Construct the email link credential from the current URL.
+    const credential = EmailAuthProvider.credentialWithLink(
+      email, window.location.href);
+
+    if (auth.currentUser && auth.currentUser.email !== email) {
+      // If the user is already signed in, link the email credential to their account.
+      linkWithCredential(auth.currentUser, credential)
+        .then((usercred) => {
+          const user = usercred.user;
+          logAuthEvent('auth_handle_link_signin_linked', {
+            email: email || 'unknown'
+          });
+          console.log('Successfully linked', user);
+          handleAuthUIChange(user);
+        })
+        .catch((error) => {
+          const errorCode = error.code;
+          const errorMessage = error.message;
+          logAuthEvent('auth_handle_link_signin_link_failed', {
+            error_code: errorCode,
+            error_message: errorMessage
+          });
+          showToast('Error', errorMessage || 'Failed to link email with current user');
+        });
+    } else {
+
+      // The client SDK will parse the code from the link for you.
+      signInWithEmailLink(auth, email, window.location.href)
+        .then((result) => {
+          // Clear email from storage.
+          window.localStorage.removeItem('emailForSignIn');
+          logAuthEvent('auth_handle_link_signin_success', {
+            email: email || 'unknown'
+          });
+          // You can access the new user by importing getAdditionalUserInfo
+          // and calling it with result:
+          // getAdditionalUserInfo(result)
+          // You can access the user's profile via:
+          // getAdditionalUserInfo(result)?.profile
+          // You can check if the user is new or existing:
+          // getAdditionalUserInfo(result)?.isNewUser
+        })
+        .catch((error) => {
+          const errorCode = error.code;
+          const errorMessage = error.message;
+          logAuthEvent('auth_handle_link_signin_failed', {
+            error_code: errorCode,
+            error_message: errorMessage
+          });
+          showToast('Error', errorMessage || 'Failed to sign-in with link');
+
+        });
+    }
   }
 }
 
