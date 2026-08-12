@@ -1,35 +1,34 @@
 /**
  * Import function triggers from their respective submodules:
  *
- * const {onCall} = require("firebase-functions/v2/https");
- * const {onDocumentWritten} = require("firebase-functions/v2/firestore");
- *
  * See a full list of supported triggers at https://firebase.google.com/docs/functions
  */
 import {onDocumentCreated} from "firebase-functions/v2/firestore";
 import {getAuth} from "firebase-admin/auth";
 import {log, warn} from "firebase-functions/logger";
-
 import {initializeApp, applicationDefault} from "firebase-admin/app";
-
 import {getMessaging} from "firebase-admin/messaging";
 import {getFirestore, Timestamp} from "firebase-admin/firestore";
 import {Stripe} from "stripe";
 import {defineSecret} from "firebase-functions/params";
-
 import {onCall, HttpsError, onRequest} from "firebase-functions/https";
 import {logger} from "firebase-functions";
 import * as geofire from "geofire-common";
+import {googleAI} from "@genkit-ai/googleai";
+import {genkit} from "genkit";
+import {enableFirebaseTelemetry} from "@genkit-ai/firebase";
+
 
 const app = initializeApp( {
   credential: applicationDefault(),
   projectId: "osweb-140a8",
+  apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
+
 });
 
 const isFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
 const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
 const db = getFirestore(app, firestoreDatabase);
-
 
 const messaging = getMessaging();
 
@@ -37,9 +36,10 @@ const stripeSecret = defineSecret("STRIPE_SECRET_KEY");
 const endpointSecret = defineSecret("STRIPE_ENDPOINT_SECRET");
 const endpointSecretCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CHECKOUT_HOOK");
 const endpointSecretConnectCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CONNECT_CHECKOUT_HOOK");
-
+const genkeitApiKey = defineSecret("GENKIT_API_KEY");
 const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
 
+enableFirebaseTelemetry();
 
 // Function to create a new connected account in Stripe.
 export const createConnectedAccount = onCall(
@@ -1106,7 +1106,70 @@ export const createRequest =
         batchResponse);
   });
 
+export const chatMessageCreated2 = onDocumentCreated(
+    {secrets: [genkeitApiKey], document: "contactMessages/{messageId}", database: firestoreDatabase},
+    async (event) => {
+      const messageId = event.params.messageId;
+      log("New chat message: " + messageId);
+
+      const snapshot = event.data;
+      if (!snapshot) {
+        log("No data associated with the chat message event");
+        return;
+      }
+
+      const data = snapshot.data();
+      if (!data) {
+        log("Chat message has no data");
+        return;
+      }
+
+      // Skip AI-generated messages to prevent infinite loops
+      if (data.isAiReply === true) {
+        return;
+      }
+
+      const sessionId = data.sessionId || null;
+
+      const prompt = `You are a helpful assistant with knowledge of the Traveling Salesman Web application. 
+        Please provide a concise and informative response to the following message:\n\n"${data.text}"`;
+
+      const aiInstance = genkit({
+        plugins: [googleAI({apiKey: genkeitApiKey.value()})],
+        model: googleAI.model("gemini-flash-latest"),
+      });
+
+      const helloFlow = aiInstance.defineFlow("helloFlow", async () => {
+        const {text} = await aiInstance.generate(prompt);
+
+        // Write AI reply as a new message in the chat
+        await db.collection("contactMessages").add({
+          text,
+          sessionId,
+          senderId: "ai",
+          isAiReply: true,
+          createdAt: Timestamp.now(),
+        });
+
+        // Update the chat session with the latest AI message
+        if (sessionId) {
+          await db.collection("chatSessions").doc(sessionId).set({
+            updatedAt: Timestamp.now(),
+            lastMessageText: text,
+            lastMessageSenderId: "ai",
+          }, {merge: true});
+        }
+
+        log("AI reply written for message: " + messageId);
+        return text;
+      });
+
+      await helloFlow.run();
+    },
+);
+
 // Triggered when a new chat message is created in Firestore.
+// used to send a notification to the user who owns the chat session, as well as all admins.
 export const chatMessageCreated = onDocumentCreated(
     {document: "contactMessages/{messageId}", database: firestoreDatabase},
     async (event) => {
