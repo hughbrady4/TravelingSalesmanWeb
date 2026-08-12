@@ -1,8 +1,10 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics, logEvent } from 'firebase/analytics';
-import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously, authStateReady } from 'firebase/auth';
 import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
 import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
+// import {initializeAppCheck, ReCaptchaV3Provider, DebugProvider} from "firebase/app-check";
+
 import * as geofire from 'geofire-common';
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -20,7 +22,14 @@ const auth = getAuth(app);
 
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
+  // self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
 }
+
+// initializeAppCheck(app, {
+//   provider: new ReCaptchaV3Provider('6Levon8tAAAAAMcIqsKuCe0Oi_xkQ30eWA0pVV32'),
+//   isTokenAutoRefreshEnabled: true,
+// });
+
 const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
 const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
 const db = getFirestore(app, firestoreDatabase);
@@ -40,15 +49,64 @@ let pricesUnsubscribe;
 let userLocationUnsubscribe;
 
 const productDocsById = new Map();
-const priceDocsByProductId = new Map();
+// const priceDocsByProductId = new Map();
 const productCardsEl = document.getElementById('productCards');
 const HOME_LOCATION_STORAGE_KEY = 'homeUserLocation';
+const HOME_SEARCH_RADIUS_STORAGE_KEY = 'homeSearchRadiusMiles';
 const GOOGLE_GEOLOCATION_API_KEY = 'AIzaSyCEcOgUj5wuOF5ADTJuPQHMmURyLIAE4J0';
 const GOOGLE_GEOLOCATION_ENDPOINT = 'https://www.googleapis.com/geolocation/v1/geolocate';
 const GOOGLE_GEOCODING_ENDPOINT = 'https://maps.googleapis.com/maps/api/geocode/json';
+const METERS_PER_MILE = 1609.34;
+const SEARCH_RADIUS_OPTIONS_MILES = [1, 3, 5, 10, 25, 50];
+const DEFAULT_SEARCH_RADIUS_MILES = 10;
+
+let currentBannerLocation;
+let currentBannerFormattedAddress;
 
 const LOCATION_MARKER_ICON = {
   url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#0d6efd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>'),
+};
+
+const readStoredSearchRadiusMiles = () => {
+  try {
+    const value = window.localStorage.getItem(HOME_SEARCH_RADIUS_STORAGE_KEY);
+    if (!value) {
+      return DEFAULT_SEARCH_RADIUS_MILES;
+    }
+
+    const numericValue = Number(value);
+    if (SEARCH_RADIUS_OPTIONS_MILES.includes(numericValue)) {
+      return numericValue;
+    }
+  } catch (error) {
+    console.error('Unable to read stored search radius:', error);
+  }
+
+  return DEFAULT_SEARCH_RADIUS_MILES;
+};
+
+const storeSearchRadiusMiles = (miles) => {
+  if (!SEARCH_RADIUS_OPTIONS_MILES.includes(miles)) {
+    return;
+  }
+
+  try {
+    window.localStorage.setItem(HOME_SEARCH_RADIUS_STORAGE_KEY, String(miles));
+  } catch (error) {
+    console.error('Unable to store search radius:', error);
+  }
+};
+
+let selectedSearchRadiusMiles = readStoredSearchRadiusMiles();
+
+const getSelectedSearchRadiusInMeters = () => selectedSearchRadiusMiles * METERS_PER_MILE;
+
+const formatMilesLabel = (miles) => {
+  if (Number.isInteger(miles)) {
+    return `${miles}`;
+  }
+
+  return miles.toFixed(1).replace(/\.0$/, '');
 };
 
 const safeLogEvent = (name, params = {}) => {
@@ -66,26 +124,13 @@ const navigate = (url, eventName) => {
   window.location.href = url;
 };
 
-const waitForAuthUser = () => new Promise((resolve) => {
-  const unsubscribe = onAuthStateChanged(
-    auth,
-    (user) => {
-      unsubscribe();
-      resolve(user);
-    },
-    () => {
-      unsubscribe();
-      resolve(auth.currentUser);
-    },
-  );
-});
+const authStateReadyPromise = auth.authStateReady();
 
 const ensureAuthenticatedUser = async () => {
-  let user = auth.currentUser;
 
-  if (!user) {
-    user = await waitForAuthUser();
-  }
+  await authStateReadyPromise;
+
+  let user = auth.currentUser;
 
   if (!user) {
     const cred = await signInAnonymously(auth);
@@ -367,7 +412,7 @@ const saveAndApplyHomeLocation = async (location) => {
   storeHomeLocation(location);
   applyStoredLocation(location);
   await updateUserLocationRecord(location);
-  await geoQueryProducts(location, 10000);
+  await geoQueryProducts(location, getSelectedSearchRadiusInMeters());
 };
 
 const hydrateHomeLocationFromGoogleGeolocation = async () => {
@@ -435,7 +480,7 @@ const formatPriceLabel = (priceData) => {
 const closeProductPriceData = () => {
 
   productDocsById.clear();
-  priceDocsByProductId.clear();
+  // priceDocsByProductId.clear();
   renderProductCards();
 };
 
@@ -620,8 +665,13 @@ const renderCurrentLocationBanner = (location, formattedAddress) => {
     return;
   }
 
+  currentBannerLocation = location;
+  currentBannerFormattedAddress = formattedAddress;
+
+  const radiusLabel = `${formatMilesLabel(selectedSearchRadiusMiles)} miles`;
+
   if (!isValidLocation(location)) {
-    banner.textContent = 'Current location: unavailable';
+    banner.textContent = `Current location: unavailable | Search radius: ${radiusLabel}`;
     return;
   }
 
@@ -630,8 +680,56 @@ const renderCurrentLocationBanner = (location, formattedAddress) => {
   const addressLabel = typeof formattedAddress === 'string' ? formattedAddress.trim() : '';
 
   banner.textContent = addressLabel
-    ? `Current location: ${addressLabel} (${latLabel}, ${lngLabel})`
-    : `Current location: ${latLabel}, ${lngLabel}`;
+    ? `Current location: ${addressLabel} (${latLabel}, ${lngLabel}) | Search radius: ${radiusLabel}`
+    : `Current location: ${latLabel}, ${lngLabel} | Search radius: ${radiusLabel}`;
+};
+
+const createSearchRadiusControl = () => {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'd-flex align-items-center gap-2';
+
+  const label = document.createElement('label');
+  label.setAttribute('for', 'searchRadiusSelect');
+  label.className = 'form-label mb-0 fw-semibold';
+  label.textContent = 'Radius';
+
+  const select = document.createElement('select');
+  select.id = 'searchRadiusSelect';
+  select.className = 'form-select form-select-sm';
+  select.style.width = 'auto';
+
+  SEARCH_RADIUS_OPTIONS_MILES.forEach((miles) => {
+    const option = document.createElement('option');
+    option.value = String(miles);
+    option.textContent = `${formatMilesLabel(miles)} miles`;
+    if (miles === selectedSearchRadiusMiles) {
+      option.selected = true;
+    }
+    select.appendChild(option);
+  });
+
+  select.addEventListener('change', () => {
+    const nextMiles = Number(select.value);
+    if (!SEARCH_RADIUS_OPTIONS_MILES.includes(nextMiles)) {
+      return;
+    }
+
+    selectedSearchRadiusMiles = nextMiles;
+    storeSearchRadiusMiles(selectedSearchRadiusMiles);
+    renderCurrentLocationBanner(currentBannerLocation, currentBannerFormattedAddress);
+
+    if (isValidLocation(currentBannerLocation)) {
+      geoQueryProducts(currentBannerLocation, getSelectedSearchRadiusInMeters()).catch((error) => {
+        console.error('Unable to update products for search radius change:', error);
+      });
+    }
+
+    safeLogEvent('home_search_radius_changed', { miles: selectedSearchRadiusMiles });
+  });
+
+  wrapper.appendChild(label);
+  wrapper.appendChild(select);
+  return wrapper;
 };
 
 const startUserLocationListener = async () => {
@@ -665,7 +763,7 @@ const startUserLocationListener = async () => {
 
       applyStoredLocation(location);
       storeHomeLocation(location);
-      geoQueryProducts(location, 10000).catch((error) => {
+      geoQueryProducts(location, getSelectedSearchRadiusInMeters()).catch((error) => {
         console.error('Unable to load products from user location listener:', error);
       });
     },
@@ -896,7 +994,7 @@ const geoQueryProducts = async(pos, radiusInMeters = 10000) => {
       const distanceInM = distanceInKm * 1000;
       console.log(`Product ${doc.id} is ${distanceInM.toFixed(2)} meters away from the center.`);
       if (distanceInM <= radiusInMeters) {
-        const distanceInMiles = distanceInM / 1609.34;
+        const distanceInMiles = distanceInM / METERS_PER_MILE;
         matchingDocs.push(doc);
         productDocsById.set(doc.id, {
           id: doc.id,
@@ -913,11 +1011,12 @@ const geoQueryProducts = async(pos, radiusInMeters = 10000) => {
 window.addEventListener('DOMContentLoaded', async () => {
   addDisclaimerAlert();
   ensureCurrentLocationBanner();
+  renderCurrentLocationBanner(null, null);
   const localLocation = readStoredHomeLocation();
   if (localLocation) {
     renderCurrentLocationBanner(localLocation, null);
     applyStoredLocation(localLocation);
-    geoQueryProducts(localLocation, 10000).catch((error) => {
+    geoQueryProducts(localLocation, getSelectedSearchRadiusInMeters()).catch((error) => {
       console.error('Unable to load products near stored local location:', error);
     });
   }
@@ -984,6 +1083,12 @@ window.addEventListener('DOMContentLoaded', async () => {
   const controlCardContainer = document.getElementById('controlCardContainer');
   if (controlCardContainer) {
     controlCardContainer.appendChild(placeSearchControl);
+  }
+
+  const searchRadiusControl = createSearchRadiusControl();
+  const searchRadiusControlContainer = document.getElementById('searchRadiusControlContainer');
+  if (searchRadiusControlContainer) {
+    searchRadiusControlContainer.appendChild(searchRadiusControl);
   }
 
   if (pendingSavedLocation) {
