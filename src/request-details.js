@@ -1,6 +1,7 @@
 import {initializeApp} from "firebase/app";
 import {connectAuthEmulator, getAuth, onAuthStateChanged} from "firebase/auth";
 import {connectFirestoreEmulator, doc, getDoc, setDoc, getFirestore, onSnapshot} from "firebase/firestore";
+import {connectFunctionsEmulator, getFunctions, httpsCallable} from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: "AIzaSyBacr58gJ0TMqP4gkV2TD1j--nslIIx3Gk",
@@ -23,6 +24,11 @@ const db = getFirestore(app, firestoreDatabase);
 if (__USE_AUTH_EMULATOR__) {
   connectFirestoreEmulator(db, "127.0.0.1", 8080);
 }
+const functions = getFunctions(app);
+if (__USE_AUTH_EMULATOR__) {
+  connectFunctionsEmulator(functions, "127.0.0.1", 5001);
+}
+const updateRequestStatusCallable = httpsCallable(functions, "updateRequestStatus");
 
 const searchParams = new URLSearchParams(window.location.search);
 const requestId = searchParams.get("requestId") || "";
@@ -43,6 +49,61 @@ const durationValue = document.getElementById("request-duration");
 const pickupValue = document.getElementById("request-pickup");
 const dropoffValue = document.getElementById("request-dropoff");
 const routeStopsTable = document.getElementById("route-stops-table");
+
+let cancelRequestModal;
+let cancelRequestExplanationInput;
+
+function setupCancelRequestModal() {
+  const modalElement = document.getElementById("cancel-request-modal");
+  const confirmButton = document.getElementById("confirm-cancel-request");
+  cancelRequestExplanationInput = document.getElementById("cancel-request-explanation");
+
+  if (!modalElement || !confirmButton || !window.bootstrap?.Modal) {
+    return;
+  }
+
+  cancelRequestModal = new window.bootstrap.Modal(modalElement);
+
+  cancelRequestButton?.addEventListener("click", () => {
+    if (cancelRequestButton?.disabled) {
+      return;
+    }
+    cancelRequestModal.show();
+  });
+
+  confirmButton.addEventListener("click", async () => {
+    if (!requestId) {
+      return;
+    }
+
+    const explanation = cancelRequestExplanationInput?.value?.trim() || "";
+    confirmButton.disabled = true;
+
+    try {
+      await updateRequestStatusCallable({
+        requestId,
+        action: "cancel",
+        explanation: explanation || null,
+      });
+
+      cancelRequestModal.hide();
+      if (cancelRequestExplanationInput) {
+        cancelRequestExplanationInput.value = "";
+      }
+    } catch (error) {
+      const message = error?.message || "Unable to cancel this request.";
+      window.alert(message);
+    } finally {
+      confirmButton.disabled = false;
+    }
+  });
+
+  modalElement.addEventListener("hidden.bs.modal", () => {
+    if (cancelRequestExplanationInput) {
+      cancelRequestExplanationInput.value = "";
+    }
+  });
+}
 
 function formatTimestamp(value) {
   if (!value) {
@@ -140,7 +201,12 @@ function renderRequestData(id, data) {
   }
 
   if (cancelRequestButton) {
-
+    const terminalStatuses = new Set(["cancelled", "completed", "deleted", "denied"]);
+    const statusValueText = String(data?.status || "").trim().toLowerCase();
+    const isCancelledOrClosed = terminalStatuses.has(statusValueText);
+    cancelRequestButton.disabled = isCancelledOrClosed;
+    cancelRequestButton.classList.toggle("disabled", isCancelledOrClosed);
+    cancelRequestButton.setAttribute("aria-disabled", String(isCancelledOrClosed));
   }
 
   if (contactMerchantButton) {
@@ -169,6 +235,8 @@ function showError(message) {
   detailState.classList.add("d-none");
   errorState.classList.remove("d-none");
 }
+
+setupCancelRequestModal();
 
 if (!requestId) {
   showError("Missing requestId. Open this page with ?requestId=<id>.");

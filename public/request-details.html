@@ -60,7 +60,7 @@
           <p class="mb-0 opacity-75">Full ride request information</p>
         </div>
         <div>
-          <a id="cancel_request" class="btn btn-light btn-sm">Cancel Request</a>
+          <button id="cancel_request" type="button" class="btn btn-light btn-sm">Cancel Request</button>
           <a id="contact_merchant" class="btn btn-light btn-sm">Contact</a>
           <a id="complete_payment" class="btn btn-light btn-sm">Complete Payment</a>
         </div>
@@ -137,12 +137,38 @@
                 <tbody id="route-stops-table"></tbody>
               </table>
             </div>
+            <div class="col-12 d-flex justify-content-between align-items-center mt-3">
+              <a href="index.html" class="text-decoration-none">Back to home</a>
+            </div>
           </section>
 
         </div>
       </div>
     </section>
   </main>
+
+  <div class="modal fade" id="cancel-request-modal" tabindex="-1" aria-labelledby="cancel-request-modal-label" aria-hidden="true">
+    <div class="modal-dialog modal-dialog-centered">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2 class="modal-title h5" id="cancel-request-modal-label">Cancel request</h2>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+        </div>
+        <div class="modal-body">
+          <p class="mb-3">Please confirm that you want to cancel this ride request.</p>
+          <div class="mb-3">
+            <label for="cancel-request-explanation" class="form-label">Reason (optional)</label>
+            <textarea id="cancel-request-explanation" class="form-control" rows="4" maxlength="1000" placeholder="Add a short explanation for the cancellation..."></textarea>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Keep request</button>
+          <button id="confirm-cancel-request" type="button" class="btn btn-danger">Cancel request</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 </body>
 </html>
