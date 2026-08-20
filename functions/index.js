@@ -946,19 +946,52 @@ export const computeRouteEstimate = onCall(
         };
       };
 
+      const parseDurationSeconds = (value) => {
+        if (typeof value === "number" && Number.isFinite(value)) {
+          return value;
+        }
 
-      const scheduleInput = request.data.schedule;
+        if (typeof value === "string") {
+          const numericValue = Number(value.replace(/s$/, ""));
+          if (Number.isFinite(numericValue)) {
+            return numericValue;
+          }
+        }
+
+        return null;
+      };
+
+      const requestId = typeof request.data?.requestId === "string" ? request.data.requestId.trim() : "";
+      let requestDocRef = null;
+      let scheduleInput = request.data?.schedule;
+      let routeInput = request.data?.route || {routeStops: request.data?.routeStops};
+
+      if (requestId) {
+        requestDocRef = db.collection("requests").doc(requestId);
+        const requestDoc = await requestDocRef.get();
+
+        if (!requestDoc.exists) {
+          throw new HttpsError("not-found", `No request found with ID: ${requestId}`);
+        }
+
+        const requestData = requestDoc.data() || {};
+        const docSchedule = requestData.schedule && typeof requestData.schedule === "object" ? requestData.schedule : {};
+        const docRouteStops = Array.isArray(requestData.routeStops) ? requestData.routeStops : [];
+
+        scheduleInput = scheduleInput && typeof scheduleInput === "object" ? scheduleInput : docSchedule;
+        routeInput = request.data?.route || {routeStops: docRouteStops.length ? docRouteStops : request.data?.routeStops};
+      }
+
       const normalizedSchedule = normalizeScheduleInput(
           scheduleInput,
-          request.data.rideNow,
-          request.data.rideDateTime,
+          request.data?.rideNow,
+          request.data?.rideDateTime,
       );
 
-      const routeInput = request.data.route || {routeStops: request.data.routeStops};
       const computeRoutesBody = buildComputeRoutesBody(routeInput, normalizedSchedule.departureTime);
 
       const apiKey = googleRoutesApiKey.value();
-      const fieldMask = typeof request.data.fieldMask === "string" && request.data.fieldMask.trim() ?
+      const fieldMask = typeof request.data?.fieldMask === "string" && request.data.fieldMask.trim() ?
         request.data.fieldMask.trim() :
         "routes.duration,routes.distanceMeters,routes.polyline.encodedPolyline,routes.legs";
 
@@ -986,11 +1019,48 @@ export const computeRouteEstimate = onCall(
       }
 
       const routes = Array.isArray(responseData.routes) ? responseData.routes : [];
+      const primaryRoute = routes[0] || {};
+      const distanceMeters = Number(primaryRoute.distanceMeters);
+      const durationSeconds = parseDurationSeconds(primaryRoute.duration);
+      const distanceMiles = Number.isFinite(distanceMeters) ? distanceMeters * 0.000621371 : null;
+      const minutes = Number.isFinite(durationSeconds) ? durationSeconds / 60 : null;
+      const routeResult = {
+        requestId: requestId || null,
+        departureTime: normalizedSchedule.departureTime,
+        travelMode: computeRoutesBody.travelMode,
+        routingPreference: computeRoutesBody.routingPreference,
+        distanceMeters: Number.isFinite(distanceMeters) ? distanceMeters : null,
+        durationSeconds: Number.isFinite(durationSeconds) ? durationSeconds : null,
+        distanceMiles: Number.isFinite(distanceMiles) ? Number(distanceMiles.toFixed(2)) : null,
+        minutes: Number.isFinite(minutes) ? Number(minutes.toFixed(2)) : null,
+        route: computeRoutesBody,
+        routes,
+      };
+
+      if (requestDocRef) {
+        const updateData = {
+          updatedTS: new Date(),
+          routeEstimate: routeResult,
+          routeStops: Array.isArray(routeInput.routeStops) ? routeInput.routeStops : [],
+        };
+
+        if (Number.isFinite(distanceMiles)) {
+          updateData.distancemiles = Number(distanceMiles.toFixed(2));
+        }
+
+        if (Number.isFinite(minutes)) {
+          updateData.minutes = Number(minutes.toFixed(2));
+        }
+
+        await requestDocRef.update(updateData);
+      }
 
       return {
+        requestId: requestId || null,
         schedule: normalizedSchedule,
         request: computeRoutesBody,
         routes,
+        routeEstimate: routeResult,
         raw: responseData,
       };
     },
