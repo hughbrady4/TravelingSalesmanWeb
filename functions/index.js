@@ -38,6 +38,7 @@ const endpointSecretCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CHECKOUT
 const endpointSecretConnectCheckoutHook = defineSecret("STRIPE_ENDPOINT_SECRET_CONNECT_CHECKOUT_HOOK");
 const genkeitApiKey = defineSecret("GENKIT_API_KEY");
 const googleRoutesApiKey = defineSecret("GOOGLE_ROUTES_API_KEY");
+const googleRoutesReferer = process.env.DOMAIN || "https://travelingsalesman.web.app";
 
 enableFirebaseTelemetry();
 
@@ -905,6 +906,12 @@ export const computeRouteEstimate = onCall(
           );
         }
 
+        if (parsedDate.getTime() < Date.now()) {
+          const now = new Date();
+          now.setMinutes(now.getMinutes() + 10);
+          return {rideNow: true, departureTime: now.toISOString()};
+        }
+
         return {rideNow: false, departureTime: parsedDate.toISOString()};
       };
 
@@ -1001,6 +1008,7 @@ export const computeRouteEstimate = onCall(
           "Content-Type": "application/json",
           "X-Goog-Api-Key": apiKey,
           "X-Goog-FieldMask": fieldMask,
+          "Referer": googleRoutesReferer,
         },
         body: JSON.stringify(computeRoutesBody),
       });
@@ -1519,7 +1527,7 @@ export const expireCheckoutSession = onCall(
     },
 );
 
-export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
+export const accountCreatedHook = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE_ENDPOINT_SECRET"]},
 
     (request, response) => {
       let event = request.body;
@@ -1529,43 +1537,37 @@ export const accountCreated = onRequest( {secrets: ["STRIPE_SECRET_KEY", "STRIPE
 
       const endpointSecretKey = endpointSecret.value();
 
-      // Only verify the event if you have an endpoint secret defined.
-      // Otherwise use the basic event deserialized with JSON.parse
-      if (endpointSecretKey) {
-        // Get the signature sent by Stripe
-        const signature = request.headers["stripe-signature"];
-        try {
-          event = stripe.webhooks.constructEvent(
-              request.rawBody,
-              signature,
-              endpointSecretKey,
-          );
-        } catch (err) {
-          log(`⚠️  Webhook signature verification failed.`, err.message);
-          return response.sendStatus(400);
-        }
-      } else {
-        event = JSON.parse(request.body);
+      // Get the signature sent by Stripe
+      const signature = request.headers["stripe-signature"];
+      try {
+        event = stripe.webhooks.constructEvent(
+            request.rawBody,
+            signature,
+            endpointSecretKey,
+        );
+      } catch (err) {
+        log(`⚠️  Webhook signature verification failed.`, err.message);
+        return response.sendStatus(400);
       }
 
+      const eventId = typeof event?.id === "string" ? event.id : null;
 
-      // Handle the event
-      switch (event.type) {
-        case "payment_intent.succeeded":
-          // const paymentIntent = event.data.object;
-          // console.log(`PaymentIntent for ${paymentIntent.amount} was successful!`);
-          // Then define and call a method to handle the successful payment intent.
-          // handlePaymentIntentSucceeded(paymentIntent);
-          break;
-        case "payment_method.attached":
-          // const paymentMethod = event.data.object;
-          // Then define and call a method to handle the successful attachment of a PaymentMethod.
-          // handlePaymentMethodAttached(paymentMethod);
-          break;
-        default:
-          // Unexpected event type
-          log(`Unhandled event type ${event.type}.`);
+      if (eventId) {
+        db.collection("accountCreatedEvents").doc(eventId).set({
+          type: event.type,
+          created: event.created || null,
+          account: event.account || null,
+          context: event.context || null,
+          livemode: event.livemode || null,
+          data: event.data || null,
+          receivedAt: Timestamp.now(),
+        }, {merge: true}).then(() => {
+          log(`Stored event ${eventId} in accountCreatedEvents collection.`);
+        }).catch((error) => {
+          log(`Error storing event ${eventId}:`, error);
+        });
       }
+
 
       response.status(200).send();
     },
@@ -1628,35 +1630,46 @@ export const connectCheckoutSessionHook = onRequest( {secrets: ["STRIPE_SECRET_K
 
       const endpointSecretKey = endpointSecretConnectCheckoutHook.value();
 
-      // Only verify the event if you have an endpoint secret defined.
-      // Otherwise use the basic event deserialized with JSON.parse
-      if (endpointSecretKey) {
-        // Get the signature sent by Stripe
-        const signature = request.headers["stripe-signature"];
-        try {
-          event = stripe.webhooks.constructEvent(
-              request.rawBody,
-              signature,
-              endpointSecretKey,
-          );
-        } catch (err) {
-          log(`⚠️  Webhook signature verification failed.`, err.message);
-          return response.sendStatus(400);
-        }
-      } else {
-        event = JSON.parse(request.body);
+      // Get the signature sent by Stripe
+      const signature = request.headers["stripe-signature"];
+      try {
+        event = stripe.webhooks.constructEvent(
+            request.rawBody,
+            signature,
+            endpointSecretKey,
+        );
+      } catch (err) {
+        log(`⚠️  Webhook signature verification failed.`, err.message);
+        return response.sendStatus(400);
       }
+
 
       // Handle the event
       let session;
       let status;
+      const eventId = typeof event?.id === "string" ? event.id : null;
+
+      if (eventId) {
+        db.collection("connectedCheckoutEvents").doc(eventId).set({
+          type: event.type,
+          created: event.created || null,
+          account: event.account || null,
+          context: event.context || null,
+          livemode: event.livemode || null,
+          data: event.data || null,
+          receivedAt: Timestamp.now(),
+        }, {merge: true}).then(() => {
+          log(`Stored event ${eventId} in connectedCheckoutEvents collection.`);
+        }).catch((error) => {
+          log(`Error storing event ${eventId}:`, error);
+        });
+      }
+
       switch (event.type) {
         case "checkout.session.completed":
           session = event.data.object;
           status = session.payment_status;
           log(`Checkout session completed for session ID: ${session.id} with payment status: ${status}`);
-          // Then define and call a method to handle the successful checkout session.
-          // handleCheckoutSessionCompleted(session);
           break;
         default:
           // Unexpected event type

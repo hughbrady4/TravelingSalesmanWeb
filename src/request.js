@@ -319,6 +319,14 @@ async function computeRouteMetrics(stops) {
     return null;
   }
 
+  const intermediates = stops.slice(1, -1).map((stop) => ({
+    location: {
+        lat: stop.lat,
+        lng: stop.lng,
+    },
+  }));
+
+  console.log('Intermediates:', intermediates);
   const request = {
     origin: {
       lat: stops[0].lat,
@@ -328,6 +336,7 @@ async function computeRouteMetrics(stops) {
       lat: stops[stops.length - 1].lat,
       lng: stops[stops.length - 1].lng,
     },
+    intermediates,
     travelMode: 'DRIVING',
     fields: ['distanceMeters', 'durationMillis'],
   };
@@ -364,8 +373,8 @@ function setupFormSubmission() {
       return;
     }
 
-    if (routeStops.length < 1) {
-      alert('Please add at least one route stop before submitting.');
+    if (routeStops.length < 2) {
+      alert('Please add at least two route waypoints before submitting.');
       return;
     }
 
@@ -392,6 +401,8 @@ function setupFormSubmission() {
       }
     } catch (routeError) {
       console.warn('Unable to compute route metrics with Maps Routes SDK:', routeError);
+      alert('Unable to compute route metrics. Please contact support.');
+      return;
     }
 
     const ridePayload = {
