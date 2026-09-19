@@ -438,7 +438,7 @@ const handleManageAccount =  async (event) => {
 
   if (accountId) {
     const stripeAccountLink = httpsCallable(functions, 'createAccountLink');
-    const accountLinkResult = await stripeAccountLink({ accountId: accountId });
+    const accountLinkResult = await stripeAccountLink({ accountId: accountId, useType: 'account_onboarding' });
     console.log('Stripe account link:', accountLinkResult.data.url);
     logCustomEvent('stripe_account_link_created', {
       account_id: accountId
