@@ -1,8 +1,9 @@
 import { initializeApp } from 'firebase/app';
 import { getAnalytics, logEvent } from 'firebase/analytics';
-import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously, authStateReady } from 'firebase/auth';
-import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, query, serverTimestamp, setDoc, where, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
-import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions';
+import { connectAuthEmulator, getAuth, onAuthStateChanged, signInAnonymously } from 'firebase/auth';
+import { connectFirestoreEmulator, collection, doc, getDoc, getFirestore, onSnapshot, 
+  query, serverTimestamp, setDoc, where, orderBy, startAt, endAt, getDocs } from 'firebase/firestore';
+import { connectFunctionsEmulator, getFunctions } from 'firebase/functions';
 // import {initializeAppCheck, ReCaptchaV3Provider, DebugProvider} from "firebase/app-check";
 
 import * as geofire from 'geofire-common';
@@ -41,6 +42,10 @@ if (__USE_AUTH_EMULATOR__) {
   connectFunctionsEmulator(functions, '127.0.0.1', 5001);
 }
 
+onAuthStateChanged(auth, (user) => {
+  // Auth state is handled by explicit login flows.
+});
+
 let pendingSavedLocation;
 let placeAutocompleteControl;
 let pendingPlaceSearchBias;
@@ -62,10 +67,6 @@ const DEFAULT_SEARCH_RADIUS_MILES = 10;
 
 let currentBannerLocation;
 let currentBannerFormattedAddress;
-
-const LOCATION_MARKER_ICON = {
-  url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="#0d6efd" d="M12 2c-3.87 0-7 3.13-7 7 0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 10a3 3 0 1 1 0-6 3 3 0 0 1 0 6z"/></svg>'),
-};
 
 const readStoredSearchRadiusMiles = () => {
   try {
@@ -124,11 +125,9 @@ const navigate = (url, eventName) => {
   window.location.href = url;
 };
 
-const authStateReadyPromise = auth.authStateReady();
-
 const ensureAuthenticatedUser = async () => {
 
-  await authStateReadyPromise;
+  await auth.authStateReady();
 
   let user = auth.currentUser;
 
@@ -456,24 +455,6 @@ const buildProductUrlWithParams = (baseUrl, accountId, productId, priceId) => {
   } catch (error) {
     console.error('Invalid product URL for info window link:', error);
     return null;
-  }
-};
-
-const formatPriceLabel = (priceData) => {
-  const amount = Number(priceData.unit_amount);
-  const currency = String(priceData.currency || 'usd').toUpperCase();
-
-  if (!Number.isFinite(amount)) {
-    return currency;
-  }
-
-  try {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency,
-    }).format(amount / 100);
-  } catch (error) {
-    return `${(amount / 100).toFixed(2)} ${currency}`;
   }
 };
 

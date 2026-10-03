@@ -262,7 +262,7 @@ const handleFormSubmit = async (event) => {
       
       // Create account link
       const stripeAccountLink = httpsCallable(functions, 'createAccountLink');
-      const accountLinkResult = await stripeAccountLink({ accountId: stripeAccount.accountId });
+      const accountLinkResult = await stripeAccountLink({ accountId: stripeAccount.accountId, useType: 'account_onboarding' });
       console.log('Stripe account link:', accountLinkResult.data.url);
       
       logCustomEvent('stripe_account_link_created', {

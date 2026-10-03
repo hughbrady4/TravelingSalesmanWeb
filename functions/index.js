@@ -26,8 +26,12 @@ const app = initializeApp( {
 
 });
 
-const isFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
-const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+let firestoreDatabase = "travelingsalesman";
+if (typeof process !== 'undefined') {
+  const isFirestoreEmulator = Boolean(process.env.FIRESTORE_EMULATOR_HOST);
+  firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
+}
+
 const db = getFirestore(app, firestoreDatabase);
 
 const messaging = getMessaging();
@@ -103,17 +107,38 @@ export const createConnectedAccount = onCall(
         ],
       });
 
+
+      const hasMerchantConfiguration =
+        Array.isArray(account.applied_configurations) ?
+          account.applied_configurations.includes("merchant") :
+          account.applied_configurations?.merchant === true;
+
       // Store account information in Firestore keyed by Stripe account ID
       const userId = request.auth.uid;
       await db.collection("stripeAccounts").doc(account.id).set({
         userId,
         companyName: companyName,
         email: email,
-        createdAt: new Date(),
+        createdAt: Timestamp.now(),
         status: "pending",
+        ...account,
       }, {merge: true});
 
       log(`Stripe account created for user ${userId}: ${account.id}`);
+
+      if (hasMerchantConfiguration) {
+        const merchantData = {
+          userId: userId,
+          companyName: companyName,
+          email: email,
+          createdAt: Timestamp.now(),
+          status: "pending",
+          ...account,
+        };
+
+        await db.collection("merchants").doc(account.id).set(merchantData, {merge: true});
+      }
+
 
       return {accountId: account.id};
     });
@@ -303,21 +328,34 @@ export const createAccountLink = onCall(
       const secretKey = stripeSecret.value();
       const stripe = new Stripe(secretKey);
       const accountId = request.data.accountId;
+      const useType = request.data.useType || "onboarding";
       const url = `${process.env.DOMAIN}`;
 
       logger.log("Creating account link for account:", accountId);
+      logger.log("Using use type for account link:", useType);
       logger.log("Using URL for account link:", url);
+
+      const useCase = useType === "update" ? {
+        type: "account_update",
+        account_update: {
+          refresh_url: url,
+          return_url: url,
+        },
+      } : {
+        type: "account_onboarding",
+        account_onboarding: {
+          configurations: ["merchant", "customer"],
+          refresh_url: url,
+          return_url: url,
+        },
+      };
+
       const accountLink = await stripe.v2.core.accountLinks.create({
         account: accountId,
-        use_case: {
-          type: "account_onboarding",
-          account_onboarding: {
-            configurations: ["merchant", "customer"],
-            refresh_url: url,
-            return_url: url,
-          },
-        },
+        use_case: useCase,
       });
+
+      await db.collection("accountLinks").doc(accountLink.account).set(accountLink, {merge: true});
 
       return {url: accountLink.url};
     });
@@ -341,14 +379,25 @@ export const getAccountStatus = onCall(
       const summaryStatus = account.requirements?.summary?.minimum_deadline?.status;
       const detailsSubmitted = !summaryStatus || summaryStatus === "eventually_due";
 
+      const hasMerchantConfiguration =
+        Array.isArray(account.applied_configurations) ?
+          account.applied_configurations.includes("merchant") :
+          account.applied_configurations?.merchant === true;
+
+
       const resultData = {
         payoutsEnabled: payoutsEnabled,
         chargesEnabled: chargesEnabled,
         detailsSubmitted: detailsSubmitted,
-        // summaryStatus: summaryStatus,
+        ...account,
       };
       // Persist account status to Firestore account collection
       await db.collection("stripeAccounts").doc(account.id).set(resultData, {merge: true});
+
+
+      if (hasMerchantConfiguration) {
+        await db.collection("merchants").doc(account.id).set(resultData, {merge: true});
+      }
 
       return resultData;
     });
@@ -1128,10 +1177,10 @@ export const updateRequestStatus = onCall(async (request) => {
   return {requestId, status: nextStatus, explanation};
 });
 
-export const createRequest =
+export const onRequestCreated =
   onDocumentCreated({document: "requests/{requestId}", database: firestoreDatabase}, async (event) => {
-    const request = event.params.requestId;
-    log("New request: " + request);
+    const requestId = event.params.requestId;
+    log("New request: " + requestId);
 
     const snapshot = event.data;
     if (!snapshot) {
@@ -1142,46 +1191,81 @@ export const createRequest =
 
     log("Request user: " + data.user);
 
-    const driverCollection = db.collection("drivers");
-    const driverDocRefs = await driverCollection.listDocuments();
-    if (driverDocRefs.length === 0) {
-      log("There are no drivers to send notifications to.");
-      return;
-    }
-    const tokens = await db.getAll(...driverDocRefs);
-
     // Get the user's phone number from Firebase Authentication
     // and update the request document with it.
     const auth = getAuth();
     const userProfile = await auth.getUser(data.user);
     event.data.ref.set({phoneNumber: userProfile.phoneNumber ?? "unknown"}, {merge: true});
 
-    const notification = {
-      title: "You have a new request.",
-      body: (userProfile.phoneNumber ?? "Someone") +
-              " requested a ride.",
-      image: userProfile.photoURL ?? "",
-    };
+    const adminCollection = db.collection("admin");
+    const adminDocRefs = await adminCollection.listDocuments();
+    if (adminDocRefs.length === 0) {
+      log("There are no admins to send notifications to.");
+    } else {
+      log("Sending notifications to " + adminDocRefs.length + " admins.");
+    
+      const tokens = await db.getAll(...adminDocRefs);
 
-    // Send notifications to all tokens.
-    const messages = [];
+      const notification = {
+        title: "New Request Created",
+        body: (userProfile.phoneNumber ?? "Someone") +
+                " created a request",
+        image: userProfile.photoURL ?? "",
+      };
 
-    tokens.forEach((doc) => {
-      messages.push({
-        token: doc.data().fcmToken,
-        notification: notification,
+      // Send notifications to all tokens.
+      const messages = [];
+
+      tokens.forEach((doc) => {
+        messages.push({
+          token: doc.data().fcmToken,
+          notification: notification,
+        });
       });
-    });
 
-    const batchResponse = await messaging.sendEach(messages);
+      const batchResponse = await messaging.sendEach(messages);
 
-    if (batchResponse.failureCount < 1) {
-      // Messages sent sucessfully. We're done!
-      log("Messages sent.");
-      return;
+      if (batchResponse.failureCount < 1) {
+        // Messages sent sucessfully. We're done!
+        log("Messages sent.");
+      } else {
+        warn(`${batchResponse.failureCount} messages weren't sent.`, batchResponse);
+      }
     }
-    warn(`${batchResponse.failureCount} messages weren't sent.`,
-        batchResponse);
+
+    // Send merchant an email notification about the new request.
+    const requestAccountId = typeof data.accountId === "string" ? data.accountId.trim() : "";
+    let merchantEmail = typeof data.merchantEmail === "string" ? data.merchantEmail.trim() : "";
+
+    if (!merchantEmail && requestAccountId) {
+      const merchantDoc = await db.collection("merchants").doc(requestAccountId).get();
+      if (merchantDoc.exists) {
+        const merchantData = merchantDoc.data() || {};
+        merchantEmail = typeof merchantData.contact_email === "string" ? merchantData.contact_email.trim() : "";
+        if (!merchantEmail) {
+          merchantEmail = typeof merchantData.email === "string" ? merchantData.email.trim() : "";
+        }
+      }
+    }
+
+    if (!merchantEmail) {
+      console.warn("Request has no merchant email; no email queued.", {
+        requestId,
+        accountId: requestAccountId,
+      });
+    } else {
+      log(`Queuing email notification for merchant ${merchantEmail} regarding request ${requestId}.`);
+
+      const requestUrl = `https://travelingsalesman.web.app/request-details.html?requestId=${encodeURIComponent(requestId)}`;
+      await db.collection("mail").add({
+        to: merchantEmail,
+        message: {
+          subject: "New request created",
+          text: `A new request was created: ${requestId}\n\nView request: ${requestUrl}`,
+          html: `A new request was created: ${requestId}<br><br><a href="${requestUrl}">View request</a>`,
+        },
+      });
+    }
   });
 
 export const chatMessageCreated2 = onDocumentCreated(
@@ -1408,6 +1492,9 @@ async function createRequestPricing(requestId) {
     mode: mode,
     success_url: successUrl,
     cancel_url: cancelUrl,
+    metadata: {
+      requestId: normalizedRequestId,
+    },
   }, {
     stripeAccount: data.accountId,
   });

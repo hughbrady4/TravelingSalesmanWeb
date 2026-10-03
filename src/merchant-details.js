@@ -15,9 +15,12 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 
+// defined in webpack.config.js
+// eslint-disable-next-line no-undef
 if (__USE_AUTH_EMULATOR__) {
   connectAuthEmulator(auth, 'http://127.0.0.1:9099');
 }
+// eslint-disable-next-line no-undef
 const isFirestoreEmulator = __USE_AUTH_EMULATOR__;
 const firestoreDatabase = isFirestoreEmulator ? "(default)" : "travelingsalesman";
 const db = getFirestore(app, firestoreDatabase);
@@ -460,12 +463,12 @@ if (pricesListEl) {
     const statusButtonEl = event.target.closest('.toggle-product-status-btn');
     if (statusButtonEl) {
       event.preventDefault();
-      generatePaymentLink(
-        statusButtonEl.dataset.accountId,
-        statusButtonEl.dataset.productId,
-        statusButtonEl.dataset.priceId,
-        statusButtonEl,
-      );
+      // generatePaymentLink(
+      //   statusButtonEl.dataset.accountId,
+      //   statusButtonEl.dataset.productId,
+      //   statusButtonEl.dataset.priceId,
+      //   statusButtonEl,
+      // );
       return;
     }
 

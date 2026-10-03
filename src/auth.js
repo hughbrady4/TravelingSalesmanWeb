@@ -1,6 +1,9 @@
-import { connectAuthEmulator, getAuth, isSignInWithEmailLink, signInWithEmailLink, sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut, linkWithCredential, EmailAuthProvider } from "firebase/auth";
+import { connectAuthEmulator, getAuth, isSignInWithEmailLink, signInWithEmailLink, 
+  sendSignInLinkToEmail, onAuthStateChanged, signOut as firebaseSignOut, linkWithCredential, EmailAuthProvider, 
+  getAdditionalUserInfo, authStateReady  } from "firebase/auth";
 import { initializeApp } from "firebase/app";
 import { getAnalytics, logEvent } from "firebase/analytics";
+import { OAuthProvider } from "firebase/auth/web-extension";
 
 
 const firebaseConfig = {
@@ -42,6 +45,13 @@ signOutBtn.addEventListener('click', signOut);
 // Variable to store the countdown interval
 let countdownInterval = null;
 
+function clearCountdown() {
+  if (countdownInterval) {
+    clearInterval(countdownInterval);
+    countdownInterval = null;
+  }
+}
+
 const handleAuthUIChange = (user) => {
   if (user && !user.isAnonymous) {
     // User is signed in, see docs for a list of available properties
@@ -66,10 +76,7 @@ const handleAuthUIChange = (user) => {
     // Hide congratulations container
     congratsContainer.style.display = 'none';
     // Clear any active countdown
-    if (countdownInterval) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
-    }
+    clearCountdown();
   }
 };
 
@@ -84,22 +91,27 @@ onAuthStateChanged(auth, (user) => {
 function startCountdown() {
   let timeLeft = 5; // 5 seconds countdown
   const countdownElement = document.getElementById('countdownTimer');
-  
+
   // Update countdown immediately
   countdownElement.textContent = timeLeft;
-  
+
+  // Cancel the redirect if the user interacts with the page.
+  const stopCountdownOnPageClick = () => {
+    clearCountdown();
+    countdownElement.textContent = 'stopped';
+  };
+
+  document.addEventListener('click', stopCountdownOnPageClick, { once: true });
+
   // Clear any existing interval
-  if (countdownInterval) {
-    clearInterval(countdownInterval);
-  }
-  
+  clearCountdown();
+
   countdownInterval = setInterval(() => {
     timeLeft--;
     countdownElement.textContent = timeLeft;
-    
+
     if (timeLeft <= 0) {
-      clearInterval(countdownInterval);
-      countdownInterval = null;
+      clearCountdown();
       // Redirect to home page
       window.location.href = '/';
     }
@@ -121,59 +133,38 @@ function handleEmailLinkSignIn() {
       email = window.prompt('Please provide your email for confirmation');
     }
 
-    // Construct the email link credential from the current URL.
-    const credential = EmailAuthProvider.credentialWithLink(
-      email, window.location.href);
+    // Get reference to the currently signed-in user
+    const prevUser = auth.currentUser;
 
-    if (auth.currentUser && auth.currentUser.email !== email) {
-      // If the user is already signed in, link the email credential to their account.
-      linkWithCredential(auth.currentUser, credential)
-        .then((usercred) => {
-          const user = usercred.user;
-          logAuthEvent('auth_handle_link_signin_linked', {
-            email: email || 'unknown'
+    signInWithEmailLink(auth, email, window.location.href)
+      .then((result) => {
+        console.log('Sign-in result:', result);
+        // You can access the new user by importing getAdditionalUserInfo
+        const additionalUserInfo = getAdditionalUserInfo(result);
+        // You can check if the user is new or existing:
+        const isNewUser = additionalUserInfo?.isNewUser;
+        console.log('Is new user:', isNewUser);
+        if (isNewUser) {
+          return linkWithCredential(prevUser, OAuthProvider.credentialFromResult(result))
+          .then((usercred) => {
+            const user = usercred.user;
+            console.log('Successfully linked', user);
           });
-          console.log('Successfully linked', user);
-          handleAuthUIChange(user);
-        })
-        .catch((error) => {
-          const errorCode = error.code;
-          const errorMessage = error.message;
-          logAuthEvent('auth_handle_link_signin_link_failed', {
-            error_code: errorCode,
-            error_message: errorMessage
-          });
-          showToast('Error', errorMessage || 'Failed to link email with current user');
+        } else {
+          console.log('User is not new, no linking required');
+        }
+        
+      }).catch((error) => {
+        const errorCode = error.code;
+        const errorMessage = error.message;
+        logAuthEvent('auth_handle_link_signin_failed', {
+          error_code: errorCode,
+          error_message: errorMessage
         });
-    } else {
+        console.error('Error during email link sign-in:', error);
+        showToast('Error', errorMessage || 'Failed to sign-in with link');
 
-      // The client SDK will parse the code from the link for you.
-      signInWithEmailLink(auth, email, window.location.href)
-        .then((result) => {
-          // Clear email from storage.
-          window.localStorage.removeItem('emailForSignIn');
-          logAuthEvent('auth_handle_link_signin_success', {
-            email: email || 'unknown'
-          });
-          // You can access the new user by importing getAdditionalUserInfo
-          // and calling it with result:
-          // getAdditionalUserInfo(result)
-          // You can access the user's profile via:
-          // getAdditionalUserInfo(result)?.profile
-          // You can check if the user is new or existing:
-          // getAdditionalUserInfo(result)?.isNewUser
-        })
-        .catch((error) => {
-          const errorCode = error.code;
-          const errorMessage = error.message;
-          logAuthEvent('auth_handle_link_signin_failed', {
-            error_code: errorCode,
-            error_message: errorMessage
-          });
-          showToast('Error', errorMessage || 'Failed to sign-in with link');
-
-        });
-    }
+      });
   }
 }
 
